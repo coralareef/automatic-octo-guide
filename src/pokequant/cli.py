@@ -2,6 +2,7 @@ import argparse
 import json
 from pathlib import Path
 
+from pokequant.analysis.empirical import matchup_matrix, pair_synergies, pokemon_outcomes
 from pokequant.analysis.historical import weighted_usage
 from pokequant.analysis.meta import parse_chaos, rank_pokemon
 from pokequant.clients.showdown import get_replay, iter_replays
@@ -141,10 +142,93 @@ def cmd_historical_rank(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_empirical_pokemon(args: argparse.Namespace) -> int:
+    conn = connect(args.db)
+    try:
+        rows = pokemon_outcomes(
+            conn,
+            format=args.format,
+            min_rating=args.min_rating,
+            prior_strength=args.prior,
+        )[: args.top]
+    finally:
+        conn.close()
+    print("rank\tpokemon\tgames\twins\tposterior_win\tci_low\tci_high")
+    for idx, row in enumerate(rows, start=1):
+        print(
+            f"{idx}\t{row.name}\t{row.appearances}\t{row.wins}\t"
+            f"{row.posterior_win_rate:.4f}\t{row.ci_low:.4f}\t{row.ci_high:.4f}"
+        )
+    return 0
+
+
+def cmd_empirical_pairs(args: argparse.Namespace) -> int:
+    conn = connect(args.db)
+    try:
+        rows = pair_synergies(
+            conn,
+            format=args.format,
+            min_rating=args.min_rating,
+            min_pair_appearances=args.min_games,
+            pmi_shrinkage=args.shrinkage,
+            win_prior_strength=args.prior,
+        )[: args.top]
+    finally:
+        conn.close()
+    print(
+        "rank\tpair\tteam_games\tlift\tshrunk_pmi\tpair_win\tci_low\tci_high"
+    )
+    for idx, row in enumerate(rows, start=1):
+        print(
+            f"{idx}\t{row.a} + {row.b}\t{row.team_appearances}\t"
+            f"{row.raw_lift:.3f}\t{row.shrunk_pmi:.4f}\t"
+            f"{row.pair_posterior_win_rate:.4f}\t"
+            f"{row.pair_ci_low:.4f}\t{row.pair_ci_high:.4f}"
+        )
+    return 0
+
+
+def cmd_empirical_matchups(args: argparse.Namespace) -> int:
+    conn = connect(args.db)
+    try:
+        rows = matchup_matrix(
+            conn,
+            format=args.format,
+            min_rating=args.min_rating,
+            min_observations=args.min_games,
+            prior_strength=args.prior,
+        )
+    finally:
+        conn.close()
+    if args.pokemon:
+        key = args.pokemon.casefold()
+        rows = [
+            row
+            for row in rows
+            if row.attacker.casefold() == key or row.defender.casefold() == key
+        ]
+    rows = rows[: args.top]
+    print("rank\tattacker\tdefender\tgames\tposterior_win\tci_low\tci_high")
+    for idx, row in enumerate(rows, start=1):
+        print(
+            f"{idx}\t{row.attacker}\t{row.defender}\t{row.observations}\t"
+            f"{row.posterior_win_rate:.4f}\t{row.ci_low:.4f}\t{row.ci_high:.4f}"
+        )
+    return 0
+
+
 def _add_target_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--month", default="2026-08")
     parser.add_argument("--format", default="gen9ou")
     parser.add_argument("--rating", default=1825, type=int)
+
+
+def _add_empirical_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--db", default="data/pokequant.db")
+    parser.add_argument("--format", default="gen9ou")
+    parser.add_argument("--min-rating", type=int, default=1600)
+    parser.add_argument("--prior", type=float, default=12.0)
+    parser.add_argument("--top", type=int, default=30)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -219,6 +303,31 @@ def build_parser() -> argparse.ArgumentParser:
     p_hist.add_argument("--half-life", type=float, default=3.0)
     p_hist.add_argument("--top", type=int, default=30)
     p_hist.set_defaults(func=cmd_historical_rank)
+
+    p_ep = sub.add_parser(
+        "empirical-pokemon",
+        help="Rank Pokémon by shrinkage-adjusted replay win rate",
+    )
+    _add_empirical_args(p_ep)
+    p_ep.set_defaults(func=cmd_empirical_pokemon)
+
+    p_pairs = sub.add_parser(
+        "empirical-pairs",
+        help="Rank teammate pairs by lift/PMI and observed outcomes",
+    )
+    _add_empirical_args(p_pairs)
+    p_pairs.add_argument("--min-games", type=int, default=10)
+    p_pairs.add_argument("--shrinkage", type=float, default=8.0)
+    p_pairs.set_defaults(func=cmd_empirical_pairs)
+
+    p_match = sub.add_parser(
+        "empirical-matchups",
+        help="Estimate directional Pokémon-vs-Pokémon matchup outcomes",
+    )
+    _add_empirical_args(p_match)
+    p_match.add_argument("--min-games", type=int, default=10)
+    p_match.add_argument("--pokemon")
+    p_match.set_defaults(func=cmd_empirical_matchups)
 
     return parser
 
