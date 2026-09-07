@@ -1,0 +1,144 @@
+name: Meta simulation pilot
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/meta-simulation-pilot.yml"
+
+jobs:
+  pilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: python -m pip install -e .
+      - run: npm install --no-audit --no-fund
+      - name: Run paired meta pilot
+        run: |
+          python - <<'PY'
+          from pokequant.analysis.meta import parse_chaos, rank_pokemon
+          from pokequant.analysis.population import generate_opponent_population
+          from pokequant.clients.smogon import get_chaos
+          from pokequant.config import MetaTarget
+          from pokequant.evaluation import evaluate_candidate
+          from pokequant.optimizer.team import beam_search
+          from pokequant.proposals import build_legal_opponent_proposals
+          from pokequant.sets import generate_team_set_candidates
+          from pokequant.simulator import simulate_heuristic, validate_team
+
+          target = MetaTarget(month="2026-08", format="gen9ou", rating=1825)
+          records = parse_chaos(get_chaos(target))
+          ranked = rank_pokemon(records)
+          species_teams = beam_search(
+              records,
+              ranked,
+              pool_size=40,
+              beam_width=250,
+              team_size=6,
+              threat_top_n=30,
+          )
+          assert species_teams
+          species_candidate = species_teams[0]
+
+          candidate_export = None
+          candidate_variant = None
+          for variant in generate_team_set_candidates(
+              species_candidate.members,
+              records,
+              per_species=8,
+              beam_width=96,
+              limit=48,
+          ):
+              if min(piece.coherence_score for piece in variant.sets) < 0.20:
+                  continue
+              checked = validate_team(variant.export(), format="gen9ou")
+              if checked.valid:
+                  candidate_export = checked.export
+                  candidate_variant = variant
+                  break
+          assert candidate_export is not None and candidate_variant is not None
+
+          archetypes = generate_opponent_population(
+              records,
+              pool_size=45,
+              beam_width=500,
+              team_size=6,
+              top=6,
+          )
+          assert len(archetypes) == 6
+          opponents, proposal_stats = build_legal_opponent_proposals(
+              archetypes,
+              records,
+              validator=validate_team,
+              format="gen9ou",
+              variants_per_archetype=1,
+              per_species=6,
+              beam_width=64,
+              proposal_limit=24,
+              coherence_floor=0.20,
+          )
+          print("PROPOSAL_STATS", proposal_stats)
+          print("ARCHETYPES", [
+              {
+                  "members": row.members,
+                  "weight": round(row.proposal_probability, 4),
+                  "score": round(row.score, 4),
+              }
+              for row in archetypes
+          ])
+          assert proposal_stats.archetypes_covered >= 5
+          assert len(opponents) >= 5
+          assert abs(sum(row.weight for row in opponents) - 1.0) < 1e-8
+
+          evaluated = evaluate_candidate(
+              candidate_export,
+              opponents,
+              simulator=simulate_heuristic,
+              format="gen9ou",
+              seeds_per_opponent=2,
+              base_seed=20260908,
+              max_turns=500,
+              risk_lambda=0.20,
+              cvar_alpha=0.20,
+              strict_protocol=True,
+          )
+
+          print("CANDIDATE_SPECIES", species_candidate.members)
+          print("CANDIDATE_PRE_SIM_SCORE", round(species_candidate.score, 4))
+          print("CANDIDATE_EXACT_START")
+          print(candidate_export)
+          print("CANDIDATE_EXACT_END")
+          print("EVALUATION", {
+              "expected_win": round(evaluated.expected_win, 4),
+              "ci_low": round(evaluated.ci_low, 4),
+              "ci_high": round(evaluated.ci_high, 4),
+              "effective_battles": round(evaluated.effective_battles, 2),
+              "total_battles": evaluated.total_battles,
+              "downside_cvar": round(evaluated.downside_cvar, 4),
+              "matchup_std": round(evaluated.matchup_std, 4),
+              "risk": round(evaluated.risk, 4),
+              "objective": round(evaluated.objective, 4),
+              "protocol_errors": evaluated.protocol_errors,
+          })
+          print("MATCHUPS", [
+              {
+                  "opponent": row.opponent,
+                  "weight": round(row.weight, 4),
+                  "battles": row.battles,
+                  "win_rate": round(row.win_rate, 4),
+                  "wins": row.wins,
+                  "losses": row.losses,
+                  "ties": row.ties,
+              }
+              for row in evaluated.matchups
+          ])
+          assert evaluated.total_battles >= 20
+          assert evaluated.protocol_errors == 0
+          PY
