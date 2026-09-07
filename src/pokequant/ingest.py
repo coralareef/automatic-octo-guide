@@ -89,11 +89,13 @@ def ingest_replay_corpus(
                 if sleep_seconds > 0:
                     time.sleep(sleep_seconds)
                 continue
+
             raw_rating = stub.get("rating")
             try:
-                rating = int(raw_rating) if raw_rating is not None else None
+                rating = int(raw_rating) if raw_rating is not None else summary.rating
             except (TypeError, ValueError):
-                rating = None
+                rating = summary.rating
+
             if store_replay(
                 conn,
                 summary,
