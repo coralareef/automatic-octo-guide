@@ -31,6 +31,7 @@ def parse_chaos(payload: dict[str, Any]) -> dict[str, PokemonMeta]:
             items=_mapping(row.get("Items")),
             abilities=_mapping(row.get("Abilities")),
             tera_types=_mapping(row.get("Tera Types")),
+            spreads=_mapping(row.get("Spreads")),
             teammates=_mapping(row.get("Teammates")),
             checks_counters=row.get("Checks and Counters", {})
             if isinstance(row.get("Checks and Counters", {}), dict)
@@ -67,10 +68,11 @@ def rank_pokemon(records: dict[str, PokemonMeta]) -> list[RankedPokemon]:
     ranked: list[RankedPokemon] = []
     for idx, mon in enumerate(mons):
         versatility = (
-            0.45 * _entropy(mon.moves)
-            + 0.30 * _entropy(mon.items)
+            0.40 * _entropy(mon.moves)
+            + 0.25 * _entropy(mon.items)
             + 0.15 * _entropy(mon.tera_types)
             + 0.10 * _entropy(mon.abilities)
+            + 0.10 * _entropy(mon.spreads)
         )
         score = 100.0 * (
             0.68 * usage_scaled[idx]
