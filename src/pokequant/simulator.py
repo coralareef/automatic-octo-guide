@@ -4,6 +4,7 @@ import json
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
@@ -16,22 +17,31 @@ class ValidationResult:
     pokemon: tuple[str, ...]
 
 
-def validate_team(
-    team: str,
+@dataclass(frozen=True, slots=True)
+class SimulationResult:
+    format: str
+    winner: str
+    turns: int
+    requests: int
+    seed: str
+
+
+def _run_bridge(
+    command: str,
+    payload: dict[str, Any],
     *,
-    format: str = "gen9ou",
     repo_root: str | Path | None = None,
     node: str = "node",
     timeout: float = 30.0,
-) -> ValidationResult:
+) -> dict[str, Any]:
     root = Path(repo_root) if repo_root is not None else Path.cwd()
     bridge = root / "sim" / "showdown_bridge.cjs"
     if not bridge.exists():
         raise FileNotFoundError(f"Showdown bridge not found: {bridge}")
 
     proc = subprocess.run(
-        [node, str(bridge), "validate"],
-        input=json.dumps({"format": format, "team": team}),
+        [node, str(bridge), command],
+        input=json.dumps(payload),
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -40,8 +50,25 @@ def validate_team(
         cwd=root,
     )
     if proc.returncode != 0:
-        raise RuntimeError(proc.stderr.strip() or "Showdown validator failed")
-    payload = json.loads(proc.stdout)
+        raise RuntimeError(proc.stderr.strip() or f"Showdown {command} failed")
+    return json.loads(proc.stdout)
+
+
+def validate_team(
+    team: str,
+    *,
+    format: str = "gen9ou",
+    repo_root: str | Path | None = None,
+    node: str = "node",
+    timeout: float = 30.0,
+) -> ValidationResult:
+    payload = _run_bridge(
+        "validate",
+        {"format": format, "team": team},
+        repo_root=repo_root,
+        node=node,
+        timeout=timeout,
+    )
     return ValidationResult(
         format=str(payload["format"]),
         valid=bool(payload["valid"]),
@@ -49,4 +76,37 @@ def validate_team(
         packed=str(payload.get("packed", "")),
         export=str(payload.get("export", "")),
         pokemon=tuple(str(x) for x in payload.get("pokemon", [])),
+    )
+
+
+def simulate_default(
+    p1team: str,
+    p2team: str,
+    *,
+    format: str = "gen9ou",
+    seed: str = "1,2,3,4",
+    max_turns: int = 1000,
+    repo_root: str | Path | None = None,
+    node: str = "node",
+    timeout: float = 60.0,
+) -> SimulationResult:
+    payload = _run_bridge(
+        "simulate-default",
+        {
+            "format": format,
+            "p1team": p1team,
+            "p2team": p2team,
+            "seed": seed,
+            "maxTurns": max_turns,
+        },
+        repo_root=repo_root,
+        node=node,
+        timeout=timeout,
+    )
+    return SimulationResult(
+        format=str(payload["format"]),
+        winner=str(payload["winner"]),
+        turns=int(payload["turns"]),
+        requests=int(payload["requests"]),
+        seed=str(payload["seed"]),
     )
