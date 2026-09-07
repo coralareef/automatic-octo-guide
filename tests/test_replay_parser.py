@@ -54,6 +54,26 @@ class ReplayParserTests(unittest.TestCase):
         self.assertEqual(result.rating, 1700)
         self.assertEqual(result.player_ratings, (1710, 1690))
 
+    def test_preview_prevents_form_change_double_counting(self):
+        payload = {
+            "id": "gen9ou-form",
+            "formatid": "gen9ou",
+            "players": ["Alice", "Bob"],
+            "log": "\n".join(
+                [
+                    "|poke|p1|Zamazenta-*, L100|",
+                    "|poke|p1|Ditto, L100|",
+                    "|poke|p2|Dragapult, L100|",
+                    "|switch|p1a: Zam|Zamazenta, L100|100/100",
+                    "|detailschange|p1a: Zam|Zamazenta-Crowned, L100|",
+                    "|switch|p1b: Ditto|Great Tusk, L100|100/100",
+                ]
+            ),
+        }
+        result = parse_replay(payload)
+        self.assertEqual(result.teams["p1"], {"Zamazenta", "Ditto"})
+        self.assertEqual(result.teams["p2"], {"Dragapult"})
+
     def test_partial_log_and_transform_do_not_invent_team_members(self):
         payload = {
             "id": "gen9ou-partial",
