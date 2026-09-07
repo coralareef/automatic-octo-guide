@@ -1,0 +1,37 @@
+name: Inspect Showdown payload
+
+on:
+  push:
+    paths:
+      - ".github/workflows/inspect-showdown.yml"
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e .
+      - name: Print sanitized payload shapes
+        run: |
+          python - <<'PY'
+          import json
+          from pokequant.clients.showdown import search_replays, get_replay
+          rows = search_replays(format="gen9ou")
+          stub = rows[0]
+          print("stub_keys=", sorted(stub.keys()))
+          print("stub_format=", repr(stub.get("format")))
+          print("stub_rating=", repr(stub.get("rating")))
+          print("stub_p1_present=", bool(stub.get("p1")))
+          print("stub_p2_present=", bool(stub.get("p2")))
+          payload = get_replay(str(stub["id"]))
+          print("replay_keys=", sorted(payload.keys()))
+          print("replay_format=", repr(payload.get("format")))
+          print("replay_rating=", repr(payload.get("rating")))
+          print("replay_p1_present=", bool(payload.get("p1")))
+          print("replay_p2_present=", bool(payload.get("p2")))
+          print("replay_players=", repr(payload.get("players")))
+          print("player_lines=", [line for line in str(payload.get("log", "")).splitlines() if line.startswith("|player|")])
+          PY
