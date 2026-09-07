@@ -5,6 +5,9 @@ on:
   push:
     paths:
       - ".github/workflows/live-data-smoke.yml"
+      - "sim/**"
+      - "src/pokequant/simulator.py"
+      - "tests/fixtures/legal_gen9ou.txt"
 
 jobs:
   live-data:
