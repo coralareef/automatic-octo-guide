@@ -7,6 +7,8 @@ class ReplaySummary:
     format: str | None = None
     upload_time: int | None = None
     players: tuple[str, ...] = ()
+    player_ratings: tuple[int | None, ...] = ()
+    rating: int | None = None
     winner: str | None = None
     turns: int = 0
     teams: dict[str, set[str]] = field(default_factory=dict)
