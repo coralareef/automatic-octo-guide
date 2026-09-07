@@ -43,3 +43,4 @@ class TeamCandidate:
     usage_score: float
     synergy_score: float
     diversity_score: float
+    threat_score: float = 0.0
