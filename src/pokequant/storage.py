@@ -10,7 +10,7 @@ from pokequant.analysis.meta import parse_chaos
 from pokequant.config import MetaTarget
 from pokequant.models import ReplaySummary
 
-PARSER_VERSION = "0.2.0"
+PARSER_VERSION = "0.3.0"
 
 SCHEMA = """
 PRAGMA foreign_keys=ON;
@@ -125,6 +125,7 @@ def store_meta_snapshot(
             "items": mon.items,
             "abilities": mon.abilities,
             "tera_types": mon.tera_types,
+            "spreads": mon.spreads,
             "teammates": mon.teammates,
             "checks_counters": mon.checks_counters,
         }
