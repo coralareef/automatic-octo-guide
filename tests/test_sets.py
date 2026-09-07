@@ -1,7 +1,12 @@
 import unittest
 
 from pokequant.models import PokemonMeta
-from pokequant.sets import build_team_export, generate_set_candidates, parse_spread
+from pokequant.sets import (
+    build_team_export,
+    generate_set_candidates,
+    generate_team_set_candidates,
+    parse_spread,
+)
 
 
 class SetCandidateTests(unittest.TestCase):
@@ -13,14 +18,17 @@ class SetCandidateTests(unittest.TestCase):
         self.assertEqual(spread.evs, (0, 252, 0, 0, 4, 252))
         self.assertIsNone(parse_spread("broken"))
 
-    def test_generates_ranked_four_move_sets(self):
-        mon = PokemonMeta(
-            name="Examplemon",
+    def _mon(self, name: str) -> PokemonMeta:
+        return PokemonMeta(
+            name=name,
             usage=0.2,
             items={"leftovers": 80, "choicescarf": 20},
             abilities={"pressure": 100},
             tera_types={"water": 60, "steel": 40},
-            spreads={"Jolly:0/252/0/0/4/252": 70, "Adamant:0/252/0/0/4/252": 30},
+            spreads={
+                "Jolly:0/252/0/0/4/252": 70,
+                "Adamant:0/252/0/0/4/252": 30,
+            },
             moves={
                 "movea": 100,
                 "moveb": 90,
@@ -29,6 +37,9 @@ class SetCandidateTests(unittest.TestCase):
                 "movee": 30,
             },
         )
+
+    def test_generates_ranked_four_move_sets(self):
+        mon = self._mon("Examplemon")
         rows = generate_set_candidates(mon, limit=10)
         self.assertTrue(rows)
         self.assertEqual(len(rows[0].moves), 4)
@@ -47,6 +58,16 @@ class SetCandidateTests(unittest.TestCase):
         candidate = generate_set_candidates(mon, limit=1)[0]
         export = build_team_export([candidate, candidate])
         self.assertIn("\n\n", export)
+
+    def test_beam_generates_ranked_exact_team_variants(self):
+        records = {name: self._mon(name) for name in ("A", "B", "C")}
+        rows = generate_team_set_candidates(
+            ("A", "B", "C"), records, per_species=3, beam_width=8, limit=5
+        )
+        self.assertEqual(len(rows), 5)
+        self.assertEqual(rows[0].members, ("A", "B", "C"))
+        self.assertGreaterEqual(rows[0].marginal_score, rows[-1].marginal_score)
+        self.assertEqual(rows[0].export().count("\n\n"), 2)
 
 
 if __name__ == "__main__":
