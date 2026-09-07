@@ -2,12 +2,54 @@ from __future__ import annotations
 
 import itertools
 import math
+import re
 from dataclasses import dataclass
 
 from pokequant.models import PokemonMeta
 
 
 _STAT_NAMES = ("HP", "Atk", "Def", "SpA", "SpD", "Spe")
+_ID_RE = re.compile(r"[^a-z0-9]+")
+
+_CHOICE_ITEMS = {"choiceband", "choicescarf", "choicespecs"}
+_CHOICE_BAD_MOVES = {
+    "agility",
+    "bulkup",
+    "calmmind",
+    "dragondance",
+    "irondefense",
+    "nastyplot",
+    "protect",
+    "recover",
+    "rest",
+    "roost",
+    "slackoff",
+    "softboiled",
+    "spikes",
+    "stealthrock",
+    "substitute",
+    "swordsdance",
+    "synthesis",
+    "toxicspikes",
+    "wish",
+}
+# Status moves that are unusable behind Assault Vest. This is intentionally
+# conservative and can be expanded without changing the statistical model.
+_KNOWN_STATUS_MOVES = _CHOICE_BAD_MOVES | {
+    "defog",
+    "encore",
+    "healingwish",
+    "haze",
+    "leechseed",
+    "partingshot",
+    "sleeptalk",
+    "taunt",
+    "thunderwave",
+    "toxic",
+    "trick",
+    "switcheroo",
+    "willowisp",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,6 +67,7 @@ class SetCandidate:
     spread: Spread
     moves: tuple[str, ...]
     marginal_score: float
+    coherence_score: float = 1.0
 
     def export(self) -> str:
         head = self.species + (f" @ {self.item}" if self.item else "")
@@ -59,6 +102,12 @@ class TeamSetCandidate:
         return build_team_export(self.sets)
 
 
+def _id(value: str | None) -> str:
+    if not value:
+        return ""
+    return _ID_RE.sub("", value.casefold())
+
+
 def parse_spread(label: str) -> Spread | None:
     nature, sep, raw_evs = str(label).partition(":")
     if not sep or not nature.strip():
@@ -73,6 +122,46 @@ def parse_spread(label: str) -> Spread | None:
     if len(evs) != 6:
         return None
     return Spread(nature.strip(), evs)  # type: ignore[arg-type]
+
+
+def set_coherence(
+    *,
+    item: str | None,
+    moves: tuple[str, ...],
+    spread: Spread,
+) -> float:
+    """Heuristic proposal penalty for obviously self-conflicting legal sets.
+
+    These rules do not claim to model battle value. They prevent independent
+    Smogon marginals from promoting combinations such as Choice Scarf + Nasty
+    Plot + Recover or Assault Vest + status moves. Simulation remains the final
+    arbiter among coherent legal proposals.
+    """
+    item_id = _id(item)
+    move_ids = {_id(move) for move in moves}
+    score = 1.0
+
+    if item_id in _CHOICE_ITEMS and move_ids & _CHOICE_BAD_MOVES:
+        score *= 0.03
+    if item_id == "assaultvest" and move_ids & _KNOWN_STATUS_MOVES:
+        score *= 0.01
+
+    # Body Press is Defense-scaled. Iron Defense + Body Press with an offensive
+    # max-Attack spread is a classic artifact of independent marginal mixing.
+    hp, atk, defense, spa, spd, spe = spread.evs
+    del hp, spa, spd, spe
+    if "bodypress" in move_ids:
+        if defense >= 128:
+            score *= 1.10
+        elif defense < 64:
+            score *= 0.45
+    if {"irondefense", "bodypress"}.issubset(move_ids):
+        if defense >= 128 and defense >= atk:
+            score *= 1.20
+        elif atk > defense:
+            score *= 0.20
+
+    return max(0.0, min(score, 1.25))
 
 
 def _top(mapping: dict[str, float], n: int) -> list[tuple[str, float]]:
@@ -167,6 +256,8 @@ def generate_set_candidates(
             log_score += 0.6 * _feature_log_score(tera_v, mon.tera_types)
         if mon.spreads:
             log_score += _feature_log_score(spread_v, mon.spreads)
+        coherence = set_coherence(item=item, moves=moves, spread=spread)
+        log_score += 1.5 * math.log(max(coherence, 1e-12))
         # Convert the log score to a monotonic, numerically stable display score.
         marginal = math.exp(
             max(log_score / max(len(moves) + 3.1, 1.0), -30.0)
@@ -180,6 +271,7 @@ def generate_set_candidates(
                 spread=spread,
                 moves=moves,
                 marginal_score=marginal,
+                coherence_score=coherence,
             )
         )
 
