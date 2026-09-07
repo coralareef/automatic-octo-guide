@@ -11,6 +11,7 @@ on:
       - "src/pokequant/optimizer/**"
       - "src/pokequant/analysis/meta.py"
       - "src/pokequant/analysis/threats.py"
+      - "src/pokequant/analysis/population.py"
       - "src/pokequant/models.py"
       - "tests/fixtures/legal_gen9ou.txt"
 
@@ -41,16 +42,30 @@ jobs:
           assert result.valid, result.problems
           assert len(result.pokemon) == 6
           PY
-      - name: Official Showdown full-battle smoke
+      - name: Official Showdown default-policy battle smoke
         run: |
           python - <<'PY'
           from pathlib import Path
           from pokequant.simulator import simulate_default
           team = Path("tests/fixtures/legal_gen9ou.txt").read_text()
           result = simulate_default(team, team, format="gen9ou", seed="1,2,3,4", max_turns=500)
-          print({"winner": result.winner, "turns": result.turns, "requests": result.requests, "seed": result.seed})
+          print({"winner": result.winner, "turns": result.turns, "requests": result.requests, "errors": result.errors})
           assert result.winner in {"P1", "P2", "tie"}
           assert result.turns > 0
+          assert result.errors == 0
+          PY
+      - name: Official Showdown heuristic-policy battle smoke
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from pokequant.simulator import simulate_heuristic
+          team = Path("tests/fixtures/legal_gen9ou.txt").read_text()
+          result = simulate_heuristic(team, team, format="gen9ou", seed="9,8,7,6", max_turns=500)
+          print({"winner": result.winner, "turns": result.turns, "requests": result.requests, "errors": result.errors, "policy": result.policy})
+          assert result.winner in {"P1", "P2", "tie"}
+          assert result.turns > 0
+          assert result.policy == "heuristic"
+          assert result.errors == 0
           PY
       - name: Ingest August 2026 high-ladder meta
         run: |
