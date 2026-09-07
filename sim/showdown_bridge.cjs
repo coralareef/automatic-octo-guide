@@ -3,7 +3,7 @@
 
 const fs = require('fs');
 const Sim = require('pokemon-showdown');
-const {Teams, TeamValidator, BattleStream, Dex, toID} = Sim;
+const {Teams, TeamValidator, BattleStream, getPlayerStreams, Dex, toID} = Sim;
 
 const HAZARD_MOVES = new Set(['stealthrock', 'spikes', 'toxicspikes', 'stickyweb']);
 const REMOVAL_MOVES = new Set(['rapidspin', 'defog', 'tidyup', 'mortalspin']);
@@ -96,8 +96,8 @@ function setForSpecies(parsedTeam, species) {
 }
 
 function activePokemon(request) {
-  const side = request.side && request.side.pokemon ? request.side.pokemon : [];
-  return side.find(mon => mon.active) || side[0] || null;
+  const pokemon = request.side && request.side.pokemon ? request.side.pokemon : [];
+  return pokemon.find(mon => mon.active) || pokemon[0] || null;
 }
 
 function ownSpecies(request) {
@@ -109,7 +109,7 @@ function moveTypeStab(move, species, teraType) {
   const template = Dex.species.get(species);
   if (!template.exists || !move.type) return 1;
   const original = template.types.includes(move.type);
-  const tera = teraType && teraType === move.type;
+  const tera = !!teraType && teraType === move.type;
   if (tera && original) return 2;
   if (tera || original) return 1.5;
   return 1;
@@ -162,9 +162,7 @@ function statusMoveScore(moveInfo, request, state, side) {
     const existing = state.hazards[otherSide(side)].has(id);
     return existing ? 10 : state.turn <= 8 ? 105 : state.turn <= 20 ? 75 : 38;
   }
-  if (REMOVAL_MOVES.has(id)) {
-    return state.hazards[side].size ? 110 : 28;
-  }
+  if (REMOVAL_MOVES.has(id)) return state.hazards[side].size ? 110 : 28;
   if (SETUP_MOVES.has(id)) {
     const boostTotal = Object.values(boosts).reduce((acc, value) => acc + Math.max(Number(value || 0), 0), 0);
     if (hp < 0.38) return 18;
@@ -199,23 +197,22 @@ function switchScore(mon, parsedTeam, opponent, state, side) {
     if (!move.exists || move.category === 'Status') continue;
     let bp = Number(move.basePower || 0);
     if (bp <= 1) bp = move.ohko ? 140 : 70;
-    offense = Math.max(offense, bp * typeMultiplier(move.type, opponent) * moveTypeStab(move, species, null));
+    offense = Math.max(
+      offense,
+      bp * typeMultiplier(move.type, opponent) * moveTypeStab(move, species, null)
+    );
   }
 
   const foe = Dex.species.get(opponent);
   let defense = 60;
   if (foe.exists) {
     let worst = 1;
-    for (const foeType of foe.types) {
-      worst = Math.max(worst, typeMultiplier(foeType, species));
-    }
+    for (const foeType of foe.types) worst = Math.max(worst, typeMultiplier(foeType, species));
     defense = 85 / Math.max(worst, 0.5);
   }
 
   let hazardPenalty = 0;
-  if (state.hazards[side].has('stealthrock')) {
-    hazardPenalty += 18 * typeMultiplier('Rock', species);
-  }
+  if (state.hazards[side].has('stealthrock')) hazardPenalty += 18 * typeMultiplier('Rock', species);
   if (state.hazards[side].has('spikes')) hazardPenalty += 10;
   return 0.52 * offense + 0.48 * defense + 35 * hp - hazardPenalty;
 }
@@ -237,30 +234,29 @@ function chooseTeamPreview(request, parsedTeam, seedKey, state) {
   return `team ${scored.map(row => row.slot).join('')}`;
 }
 
-function chooseForcedSwitch(request, parsedTeam, state, side, seedKey) {
+function availableSwitches(request, activeIndex = 0) {
   const pokemon = request.side && request.side.pokemon ? request.side.pokemon : [];
+  return pokemon.map((mon, index) => ({mon, slot: index + 1})).filter(row => (
+    row.mon &&
+    !row.mon.active &&
+    !String(row.mon.condition || '').endsWith(' fnt') &&
+    row.slot !== activeIndex + 1
+  ));
+}
+
+function chooseForcedSwitch(request, parsedTeam, state, side, seedKey) {
   const opponent = state.active[otherSide(side)] || '';
-  const choices = [];
-  for (let i = 0; i < pokemon.length; i++) {
-    const mon = pokemon[i];
-    if (mon.active || String(mon.condition || '').endsWith(' fnt')) continue;
-    let score = switchScore(mon, parsedTeam, opponent, state, side);
-    score += 0.001 * hashNoise(`${seedKey}|force|${i}|${state.decisions}`);
-    choices.push({slot: i + 1, score});
-  }
-  choices.sort((a, b) => b.score - a.score);
+  const choices = availableSwitches(request).map(row => ({
+    slot: row.slot,
+    score: switchScore(row.mon, parsedTeam, opponent, state, side) +
+      0.001 * hashNoise(`${seedKey}|force|${row.slot}|${state.decisions}`),
+  })).sort((a, b) => b.score - a.score);
   return choices.length ? `switch ${choices[0].slot}` : 'default';
 }
 
-function chooseHeuristic(request, parsedTeam, state, side, seedKey) {
-  state.decisions += 1;
-  if (request.wait) return null;
-  if (request.teamPreview) return chooseTeamPreview(request, parsedTeam, seedKey, state);
-  if (request.forceSwitch) return chooseForcedSwitch(request, parsedTeam, state, side, seedKey);
-  if (!request.active || !request.active.length) return 'default';
-
-  const activeReq = request.active[0];
-  const pokemon = request.side && request.side.pokemon ? request.side.pokemon : [];
+function chooseMoveRequest(request, parsedTeam, state, side, seedKey) {
+  const activeReq = request.active && request.active[0];
+  if (!activeReq) return 'default';
   const ownMon = activePokemon(request);
   const own = ownSpecies(request);
   const opponent = state.active[otherSide(side)] || '';
@@ -274,24 +270,18 @@ function chooseHeuristic(request, parsedTeam, state, side, seedKey) {
     const status = statusMoveScore(info, request, state, side);
     let score = damage !== null ? damage : status !== null ? status : 1;
     score += 0.001 * hashNoise(`${seedKey}|move|${i}|${state.decisions}`);
-    legalMoves.push({slot: i + 1, score, info, move: Dex.moves.get(info.id || info.move)});
+    legalMoves.push({slot: i + 1, score, move: Dex.moves.get(info.id || info.move)});
   }
   legalMoves.sort((a, b) => b.score - a.score);
   const bestMove = legalMoves[0] || null;
 
-  const switches = [];
-  if (!activeReq.trapped) {
-    for (let i = 0; i < pokemon.length; i++) {
-      const mon = pokemon[i];
-      if (mon.active || String(mon.condition || '').endsWith(' fnt')) continue;
-      let score = switchScore(mon, parsedTeam, opponent, state, side) - 38;
-      score += 0.001 * hashNoise(`${seedKey}|switch|${i}|${state.decisions}`);
-      switches.push({slot: i + 1, score});
-    }
-    switches.sort((a, b) => b.score - a.score);
-  }
-
+  const switches = activeReq.trapped ? [] : availableSwitches(request).map(row => ({
+    slot: row.slot,
+    score: switchScore(row.mon, parsedTeam, opponent, state, side) - 38 +
+      0.001 * hashNoise(`${seedKey}|switch|${row.slot}|${state.decisions}`),
+  })).sort((a, b) => b.score - a.score);
   const bestSwitch = switches[0] || null;
+
   const shouldSwitch = bestSwitch && (
     !bestMove ||
     (hp < 0.24 && bestSwitch.score > 48) ||
@@ -301,8 +291,7 @@ function chooseHeuristic(request, parsedTeam, state, side, seedKey) {
   if (!bestMove) return bestSwitch ? `switch ${bestSwitch.slot}` : 'default';
 
   let choice = `move ${bestMove.slot}`;
-  const canTera = !!activeReq.canTerastallize;
-  if (canTera && bestMove.move && bestMove.move.category !== 'Status') {
+  if (activeReq.canTerastallize && bestMove.move && bestMove.move.category !== 'Status') {
     const teraType = String(activeReq.canTerastallize || '');
     const teraSynergy = teraType && bestMove.move.type === teraType;
     if ((teraSynergy && bestMove.score >= 125 && hp >= 0.35) || bestMove.score >= 210) {
@@ -312,9 +301,28 @@ function chooseHeuristic(request, parsedTeam, state, side, seedKey) {
   return choice;
 }
 
-function updateHeuristicState(output, state) {
-  const lines = String(output || '').split('\n');
-  for (const line of lines) {
+function chooseHeuristic(request, parsedTeam, state, side, seedKey) {
+  state.decisions += 1;
+  if (request.wait) return null;
+  if (request.teamPreview) return chooseTeamPreview(request, parsedTeam, seedKey, state);
+  if (request.forceSwitch) return chooseForcedSwitch(request, parsedTeam, state, side, seedKey);
+  if (request.active) return chooseMoveRequest(request, parsedTeam, state, side, seedKey);
+  return 'default';
+}
+
+function createState() {
+  return {
+    turn: 0,
+    decisions: 0,
+    active: {p1: '', p2: ''},
+    teraType: {p1: '', p2: ''},
+    boosts: {p1: {}, p2: {}},
+    hazards: {p1: new Set(), p2: new Set()},
+  };
+}
+
+function updateHeuristicState(chunk, state) {
+  for (const line of String(chunk || '').split('\n')) {
     let match = line.match(/^\|(switch|drag|replace|detailschange)\|(p[12])a:[^|]*\|([^|]+)/);
     if (match) {
       state.active[match[2]] = speciesFromDetails(match[3]);
@@ -335,7 +343,10 @@ function updateHeuristicState(output, state) {
       const sign = match[1] === 'boost' ? 1 : -1;
       const side = match[2];
       const stat = match[3];
-      state.boosts[side][stat] = Math.max(-6, Math.min(6, (state.boosts[side][stat] || 0) + sign * Number(match[4])));
+      state.boosts[side][stat] = Math.max(
+        -6,
+        Math.min(6, (state.boosts[side][stat] || 0) + sign * Number(match[4]))
+      );
       continue;
     }
     match = line.match(/^\|-clearboost\|(p[12])a:/);
@@ -350,24 +361,41 @@ function updateHeuristicState(output, state) {
       continue;
     }
     match = line.match(/^\|-sideend\|(p[12]):[^|]*\|(?:move: )?([^|]+)/);
-    if (match) {
-      state.hazards[match[1]].delete(toID(match[2]));
-    }
+    if (match) state.hazards[match[1]].delete(toID(match[2]));
   }
 }
 
-function requestFromOutput(output) {
-  const match = String(output).match(/^sideupdate\n(p[12])\n\|request\|([^\n]*)/s);
-  if (!match) return null;
-  return {side: match[1], request: JSON.parse(match[2])};
+async function runHeuristicPlayer(playerStream, parsedTeam, side, seedKey) {
+  const state = createState();
+  let requests = 0;
+  let errors = 0;
+  let fallbackNext = false;
+
+  for await (const chunk of playerStream) {
+    updateHeuristicState(chunk, state);
+    for (const line of String(chunk).split('\n')) {
+      if (line.startsWith('|error|')) {
+        errors += 1;
+        fallbackNext = true;
+        continue;
+      }
+      if (!line.startsWith('|request|')) continue;
+      requests += 1;
+      const request = JSON.parse(line.slice('|request|'.length));
+      let choice;
+      if (fallbackNext) {
+        choice = 'default';
+        fallbackNext = false;
+      } else {
+        choice = chooseHeuristic(request, parsedTeam, state, side, seedKey);
+      }
+      if (choice) void playerStream.write(choice);
+    }
+  }
+  return {requests, errors};
 }
 
-function sideErrorFromOutput(output) {
-  const match = String(output).match(/^sideupdate\n(p[12])\n\|error\|/s);
-  return match ? match[1] : null;
-}
-
-async function runBattle(input, policy) {
+async function simulateDefault(input) {
   const format = input.format || 'gen9ou';
   const p1 = validateTeamText(input.p1team, format);
   const p2 = validateTeamText(input.p2team, format);
@@ -381,66 +409,90 @@ async function runBattle(input, policy) {
   let turns = 0;
   let requests = 0;
   let errors = 0;
-  const state = {
-    turn: 0,
-    decisions: 0,
-    active: {p1: '', p2: ''},
-    teraType: {p1: '', p2: ''},
-    boosts: {p1: {}, p2: {}},
-    hazards: {p1: new Set(), p2: new Set()},
-  };
-  const teams = {p1: p1.parsed, p2: p2.parsed};
 
   stream.write(`>start ${JSON.stringify({formatid: format, seed})}`);
   stream.write(`>player p1 ${JSON.stringify({name: 'P1', team: p1.packed})}`);
   stream.write(`>player p2 ${JSON.stringify({name: 'P2', team: p2.packed})}`);
 
   for await (const output of stream) {
-    updateHeuristicState(output, state);
     const turnMatches = [...output.matchAll(/\|turn\|(\d+)/g)];
     for (const match of turnMatches) turns = Math.max(turns, Number(match[1]));
-
     const winMatch = output.match(/\|win\|([^\n]+)/);
     if (winMatch) winner = winMatch[1].trim();
     if (output.includes('|tie|')) winner = 'tie';
+    errors += (output.match(/\|error\|/g) || []).length;
 
     if (turns > maxTurns) {
       stream.writeEnd();
       throw new Error(`battle exceeded maxTurns=${maxTurns}`);
     }
-
-    const req = requestFromOutput(output);
-    if (req) {
+    if (output.includes('sideupdate\np1\n|request|')) {
       requests += 1;
-      let choice = 'default';
-      if (policy === 'heuristic') {
-        choice = chooseHeuristic(req.request, teams[req.side], state, req.side, `${seed}|${req.side}`) || 'default';
-      }
-      stream.write(`>${req.side} ${choice}`);
-    } else {
-      const errorSide = sideErrorFromOutput(output);
-      if (errorSide) {
-        errors += 1;
-        stream.write(`>${errorSide} default`);
-      }
+      stream.write('>p1 default');
     }
-
+    if (output.includes('sideupdate\np2\n|request|')) {
+      requests += 1;
+      stream.write('>p2 default');
+    }
     if (winner) {
       stream.writeEnd();
       break;
     }
   }
-
   if (!winner) throw new Error('battle ended without a winner/tie message');
-  return {format, winner, turns, requests, seed, policy, errors};
-}
-
-async function simulateDefault(input) {
-  return runBattle(input, 'default');
+  return {format, winner, turns, requests, seed, policy: 'default', errors};
 }
 
 async function simulateHeuristic(input) {
-  return runBattle(input, 'heuristic');
+  const format = input.format || 'gen9ou';
+  const p1 = validateTeamText(input.p1team, format);
+  const p2 = validateTeamText(input.p2team, format);
+  if (!p1.valid) throw new Error(`p1 illegal: ${p1.problems.join('; ')}`);
+  if (!p2.valid) throw new Error(`p2 illegal: ${p2.problems.join('; ')}`);
+
+  const battleStream = new BattleStream();
+  const streams = getPlayerStreams(battleStream);
+  const seed = String(input.seed || '1,2,3,4');
+  const maxTurns = Number(input.maxTurns || 1000);
+  let winner = null;
+  let turns = 0;
+
+  const p1Task = runHeuristicPlayer(streams.p1, p1.parsed, 'p1', `${seed}|p1`);
+  const p2Task = runHeuristicPlayer(streams.p2, p2.parsed, 'p2', `${seed}|p2`);
+
+  void streams.omniscient.write(
+    `>start ${JSON.stringify({formatid: format, seed})}\n` +
+    `>player p1 ${JSON.stringify({name: 'P1', team: p1.packed})}\n` +
+    `>player p2 ${JSON.stringify({name: 'P2', team: p2.packed})}`
+  );
+
+  for await (const output of streams.omniscient) {
+    const turnMatches = [...output.matchAll(/\|turn\|(\d+)/g)];
+    for (const match of turnMatches) turns = Math.max(turns, Number(match[1]));
+    const winMatch = output.match(/\|win\|([^\n]+)/);
+    if (winMatch) winner = winMatch[1].trim();
+    if (output.includes('|tie|')) winner = 'tie';
+    if (turns > maxTurns) {
+      battleStream.writeEnd();
+      throw new Error(`battle exceeded maxTurns=${maxTurns}`);
+    }
+    if (winner) {
+      battleStream.writeEnd();
+      break;
+    }
+  }
+
+  const [p1Result, p2Result] = await Promise.all([p1Task, p2Task]);
+  if (!winner) throw new Error('battle ended without a winner/tie message');
+  return {
+    format,
+    winner,
+    turns,
+    requests: p1Result.requests + p2Result.requests,
+    seed,
+    policy: 'heuristic',
+    errors: p1Result.errors + p2Result.errors,
+  };
 }
 
 async function main() {
