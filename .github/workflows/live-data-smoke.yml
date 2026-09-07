@@ -33,6 +33,17 @@ jobs:
           assert result.valid, result.problems
           assert len(result.pokemon) == 6
           PY
+      - name: Official Showdown full-battle smoke
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from pokequant.simulator import simulate_default
+          team = Path("tests/fixtures/legal_gen9ou.txt").read_text()
+          result = simulate_default(team, team, format="gen9ou", seed="1,2,3,4", max_turns=500)
+          print({"winner": result.winner, "turns": result.turns, "requests": result.requests, "seed": result.seed})
+          assert result.winner in {"P1", "P2", "tie"}
+          assert result.turns > 0
+          PY
       - name: Ingest August 2026 high-ladder meta
         run: |
           pokequant warehouse-meta \
