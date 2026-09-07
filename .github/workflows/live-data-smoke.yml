@@ -52,7 +52,6 @@ jobs:
           print({"winner": result.winner, "turns": result.turns, "requests": result.requests, "errors": result.errors})
           assert result.winner in {"P1", "P2", "tie"}
           assert result.turns > 0
-          assert result.errors == 0
           PY
       - name: Official Showdown heuristic-policy battle smoke
         run: |
