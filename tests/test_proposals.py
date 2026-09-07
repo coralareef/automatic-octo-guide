@@ -24,7 +24,13 @@ class ProposalTests(unittest.TestCase):
                 abilities={"pressure": 100},
                 tera_types={"water": 100},
                 spreads={"Serious:4/0/0/0/0/0": 100},
-                moves={"tackle": 100, "protect": 80, "rest": 60, "toxic": 40},
+                moves={
+                    "tackle": 100,
+                    "protect": 80,
+                    "rest": 60,
+                    "toxic": 40,
+                    "surf": 20,
+                },
             )
         return records
 
