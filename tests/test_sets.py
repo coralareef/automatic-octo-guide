@@ -2,10 +2,12 @@ import unittest
 
 from pokequant.models import PokemonMeta
 from pokequant.sets import (
+    Spread,
     build_team_export,
     generate_set_candidates,
     generate_team_set_candidates,
     parse_spread,
+    set_coherence,
 )
 
 
@@ -48,6 +50,39 @@ class SetCandidateTests(unittest.TestCase):
         self.assertIn("EVs: 252 Atk / 4 SpD / 252 Spe", rows[0].export())
         self.assertIn("- movea", rows[0].export())
         self.assertGreaterEqual(rows[0].marginal_score, rows[-1].marginal_score)
+
+    def test_choice_setup_and_recovery_are_heavily_penalized(self):
+        spread = Spread("Timid", (0, 0, 0, 252, 4, 252))
+        bad = set_coherence(
+            item="Choice Scarf",
+            moves=("makeitrain", "shadowball", "recover", "nastyplot"),
+            spread=spread,
+        )
+        good = set_coherence(
+            item="Choice Scarf",
+            moves=("makeitrain", "shadowball", "focusblast", "trick"),
+            spread=spread,
+        )
+        self.assertLess(bad, 0.1)
+        self.assertGreater(good, 0.9)
+
+    def test_body_press_iron_defense_prefers_defense_spread(self):
+        offensive = Spread("Jolly", (0, 252, 0, 0, 4, 252))
+        defensive = Spread("Impish", (252, 0, 252, 0, 4, 0))
+        moves = ("bodypress", "irondefense", "crunch", "substitute")
+        self.assertGreater(
+            set_coherence(item="Leftovers", moves=moves, spread=defensive),
+            set_coherence(item="Leftovers", moves=moves, spread=offensive),
+        )
+
+    def test_assault_vest_status_move_is_penalized(self):
+        spread = Spread("Timid", (0, 0, 0, 252, 4, 252))
+        bad = set_coherence(
+            item="Assault Vest",
+            moves=("icebeam", "earthpower", "recover", "freezedry"),
+            spread=spread,
+        )
+        self.assertLess(bad, 0.1)
 
     def test_team_export_separates_sets(self):
         mon = PokemonMeta(
