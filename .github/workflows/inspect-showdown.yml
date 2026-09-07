@@ -22,16 +22,29 @@ jobs:
           rows = search_replays(format="gen9ou")
           stub = rows[0]
           print("stub_keys=", sorted(stub.keys()))
-          print("stub_format=", repr(stub.get("format")))
-          print("stub_rating=", repr(stub.get("rating")))
-          print("stub_p1_present=", bool(stub.get("p1")))
-          print("stub_p2_present=", bool(stub.get("p2")))
           payload = get_replay(str(stub["id"]))
           print("replay_keys=", sorted(payload.keys()))
-          print("replay_format=", repr(payload.get("format")))
-          print("replay_rating=", repr(payload.get("rating")))
-          print("replay_p1_present=", bool(payload.get("p1")))
-          print("replay_p2_present=", bool(payload.get("p2")))
-          print("replay_players=", repr(payload.get("players")))
-          print("player_lines=", [line for line in str(payload.get("log", "")).splitlines() if line.startswith("|player|")])
+          print("formatid=", repr(payload.get("formatid")))
+          inputlog = str(payload.get("inputlog", ""))
+          lines = inputlog.splitlines()
+          print("inputlog_lines=", len(lines))
+          for side in ("p1", "p2"):
+              prefix = f">player {side} "
+              found = next((line for line in lines if line.startswith(prefix)), None)
+              if found is None:
+                  print(side, "player_command=missing")
+                  continue
+              raw = found[len(prefix):]
+              try:
+                  obj = json.loads(raw)
+              except Exception:
+                  print(side, "player_command_json=False", "length=", len(raw))
+                  continue
+              print(
+                  side,
+                  "player_keys=", sorted(obj.keys()),
+                  "team_present=", bool(obj.get("team")),
+                  "team_length=", len(str(obj.get("team", ""))),
+              )
+          print("team_order_commands=", sum(1 for line in lines if line.startswith(">p1 team ") or line.startswith(">p2 team ")))
           PY
