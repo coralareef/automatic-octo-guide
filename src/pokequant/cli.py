@@ -5,6 +5,7 @@ from pathlib import Path
 from pokequant.analysis.empirical import matchup_matrix, pair_synergies, pokemon_outcomes
 from pokequant.analysis.historical import weighted_usage
 from pokequant.analysis.meta import parse_chaos, rank_pokemon
+from pokequant.analysis.threats import rank_counter_answers, team_threat_coverage
 from pokequant.clients.showdown import get_replay, iter_replays
 from pokequant.clients.smogon import get_chaos
 from pokequant.config import MetaTarget
@@ -65,6 +66,54 @@ def cmd_rank(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_threat_answers(args: argparse.Namespace) -> int:
+    records = parse_chaos(get_chaos(_target(args)))
+    rows = rank_counter_answers(
+        records,
+        top_n_threats=args.threats,
+        prior_strength=args.prior,
+        z=args.z,
+        strong_threshold=args.strong_threshold,
+    )[: args.top]
+    print("rank\tpokemon\tcoverage_score\tstrong_usage_mass\tstrong_matchups")
+    for idx, row in enumerate(rows, start=1):
+        print(
+            f"{idx}\t{row.answer}\t{row.score:.4f}\t"
+            f"{row.covered_usage_mass:.4f}\t{row.strong_matchups}"
+        )
+    return 0
+
+
+def cmd_threat_coverage(args: argparse.Namespace) -> int:
+    records = parse_chaos(get_chaos(_target(args)))
+    members = tuple(part.strip() for part in args.team.split(",") if part.strip())
+    unknown = [name for name in members if name not in records]
+    if unknown:
+        print("unknown=" + ",".join(unknown))
+        return 2
+    result = team_threat_coverage(
+        members,
+        records,
+        top_n=args.threats,
+        prior_strength=args.prior,
+        z=args.z,
+        redundancy_weight=args.redundancy,
+        uncovered_threshold=args.uncovered_threshold,
+    )
+    print(
+        f"team={' / '.join(result.members)}\tcoverage={result.score:.4f}\t"
+        f"uncovered_usage_mass={result.uncovered_usage_mass:.4f}"
+    )
+    print("threat\tusage\tbest_answer\tbest\tsecond_answer\tsecond\tcombined")
+    for row in result.threats[: args.show]:
+        print(
+            f"{row.threat}\t{row.usage:.6g}\t{row.best_answer or '-'}\t"
+            f"{row.best_score:.4f}\t{row.second_answer or '-'}\t"
+            f"{row.second_score:.4f}\t{row.combined_score:.4f}"
+        )
+    return 0
+
+
 def cmd_optimize(args: argparse.Namespace) -> int:
     records = parse_chaos(get_chaos(_target(args)))
     ranked = rank_pokemon(records)
@@ -74,13 +123,14 @@ def cmd_optimize(args: argparse.Namespace) -> int:
         pool_size=args.pool,
         beam_width=args.beam,
         team_size=6,
+        threat_top_n=args.threats,
     )[: args.top]
     for idx, team in enumerate(teams, start=1):
         print(f"#{idx} score={team.score:.2f}")
         print("  " + " / ".join(team.members))
         print(
             f"  usage={team.usage_score:.3f} synergy={team.synergy_score:.3f} "
-            f"diversity={team.diversity_score:.3f}"
+            f"diversity={team.diversity_score:.3f} threat={team.threat_score:.3f}"
         )
     return 0
 
@@ -223,6 +273,12 @@ def _add_target_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--rating", default=1825, type=int)
 
 
+def _add_threat_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--threats", type=int, default=30)
+    parser.add_argument("--prior", type=float, default=20.0)
+    parser.add_argument("--z", type=float, default=1.0)
+
+
 def _add_empirical_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--db", default="data/pokequant.db")
     parser.add_argument("--format", default="gen9ou")
@@ -251,12 +307,35 @@ def build_parser() -> argparse.ArgumentParser:
     p_rank.add_argument("--top", type=int, default=30)
     p_rank.set_defaults(func=cmd_rank)
 
+    p_answers = sub.add_parser(
+        "threat-answers",
+        help="Rank Pokémon by confidence-adjusted coverage of top meta threats",
+    )
+    _add_target_args(p_answers)
+    _add_threat_args(p_answers)
+    p_answers.add_argument("--strong-threshold", type=float, default=0.60)
+    p_answers.add_argument("--top", type=int, default=30)
+    p_answers.set_defaults(func=cmd_threat_answers)
+
+    p_coverage = sub.add_parser(
+        "threat-coverage",
+        help="Score a comma-separated team against top meta threats",
+    )
+    _add_target_args(p_coverage)
+    _add_threat_args(p_coverage)
+    p_coverage.add_argument("--team", required=True)
+    p_coverage.add_argument("--redundancy", type=float, default=0.25)
+    p_coverage.add_argument("--uncovered-threshold", type=float, default=0.55)
+    p_coverage.add_argument("--show", type=int, default=30)
+    p_coverage.set_defaults(func=cmd_threat_coverage)
+
     p_opt = sub.add_parser(
         "optimize", help="Beam-search candidate six-Pokémon teams"
     )
     _add_target_args(p_opt)
     p_opt.add_argument("--pool", type=int, default=40)
     p_opt.add_argument("--beam", type=int, default=250)
+    p_opt.add_argument("--threats", type=int, default=30)
     p_opt.add_argument("--top", type=int, default=10)
     p_opt.set_defaults(func=cmd_optimize)
 
