@@ -23,6 +23,7 @@ class PokemonMeta:
     items: dict[str, float] = field(default_factory=dict)
     abilities: dict[str, float] = field(default_factory=dict)
     tera_types: dict[str, float] = field(default_factory=dict)
+    spreads: dict[str, float] = field(default_factory=dict)
     teammates: dict[str, float] = field(default_factory=dict)
     checks_counters: dict[str, object] = field(default_factory=dict)
 
