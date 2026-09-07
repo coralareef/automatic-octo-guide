@@ -11,16 +11,25 @@ def _species_from_details(details: str) -> str:
     return details.split(",", 1)[0].strip()
 
 
+def _int_or_none(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def parse_replay(payload: dict[str, Any]) -> ReplaySummary:
     battle_id = str(payload.get("id", "unknown"))
     log = str(payload.get("log", ""))
     summary = ReplaySummary(
         battle_id=battle_id,
-        format=payload.get("format"),
-        upload_time=payload.get("uploadtime"),
+        format=payload.get("formatid") or payload.get("format"),
+        upload_time=_int_or_none(payload.get("uploadtime")),
+        rating=_int_or_none(payload.get("rating")),
         teams={"p1": set(), "p2": set()},
     )
     players: dict[str, str] = {}
+    ratings: dict[str, int | None] = {}
 
     for line in log.splitlines():
         if not line.startswith("|"):
@@ -29,7 +38,11 @@ def parse_replay(payload: dict[str, Any]) -> ReplaySummary:
         event = parts[1] if len(parts) > 1 else ""
 
         if event == "player" and len(parts) >= 4:
-            players[parts[2]] = parts[3]
+            side = parts[2]
+            if side in {"p1", "p2"}:
+                if parts[3]:
+                    players[side] = parts[3]
+                ratings[side] = _int_or_none(parts[5]) if len(parts) >= 6 else None
         elif event in {"switch", "drag", "replace"} and len(parts) >= 4:
             match = _SLOT_RE.match(parts[2])
             if match:
@@ -49,5 +62,21 @@ def parse_replay(payload: dict[str, Any]) -> ReplaySummary:
         elif event == "tie":
             summary.winner = None
 
-    summary.players = tuple(players[key] for key in ("p1", "p2") if key in players)
+    payload_players = payload.get("players")
+    if isinstance(payload_players, list):
+        for idx, side in enumerate(("p1", "p2")):
+            if side not in players and idx < len(payload_players):
+                value = payload_players[idx]
+                if isinstance(value, str) and value:
+                    players[side] = value
+
+    summary.players = tuple(players.get(side, "") for side in ("p1", "p2"))
+    summary.player_ratings = tuple(ratings.get(side) for side in ("p1", "p2"))
+
+    if summary.rating is None:
+        known = [rating for rating in summary.player_ratings if rating is not None]
+        # Conservative ladder-quality proxy: both players must meet the threshold.
+        if known:
+            summary.rating = min(known)
+
     return summary
