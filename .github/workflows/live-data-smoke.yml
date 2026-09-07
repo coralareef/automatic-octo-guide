@@ -55,6 +55,71 @@ jobs:
             --end 2026-08 \
             --format gen9ou \
             --rating 1825
+      - name: Validate optimizer-generated exact team
+        run: |
+          python - <<'PY'
+          from pokequant.analysis.meta import parse_chaos, rank_pokemon
+          from pokequant.analysis.threats import rank_counter_answers, team_threat_coverage
+          from pokequant.clients.smogon import get_chaos
+          from pokequant.config import MetaTarget
+          from pokequant.optimizer.team import beam_search
+          from pokequant.sets import generate_team_set_candidates
+          from pokequant.simulator import validate_team
+
+          target = MetaTarget(month="2026-08", format="gen9ou", rating=1825)
+          records = parse_chaos(get_chaos(target))
+          ranked = rank_pokemon(records)
+          teams = beam_search(
+              records,
+              ranked,
+              pool_size=40,
+              beam_width=250,
+              team_size=6,
+              threat_top_n=30,
+          )
+          assert teams, "species optimizer returned no teams"
+          top = teams[0]
+          coverage = team_threat_coverage(top.members, records, top_n=30)
+          answers = rank_counter_answers(records, top_n_threats=30)[:10]
+          print({
+              "species_team": top.members,
+              "score": round(top.score, 4),
+              "usage": round(top.usage_score, 4),
+              "synergy": round(top.synergy_score, 4),
+              "diversity": round(top.diversity_score, 4),
+              "threat": round(top.threat_score, 4),
+              "uncovered_usage_mass": round(coverage.uncovered_usage_mass, 4),
+              "top_counter_answers": [(r.answer, round(r.score, 4)) for r in answers],
+          })
+
+          variants = generate_team_set_candidates(
+              top.members,
+              records,
+              per_species=6,
+              beam_width=64,
+              limit=32,
+          )
+          assert variants, "set generator returned no exact teams"
+          valid = None
+          attempted = 0
+          last_problems = ()
+          for variant in variants:
+              attempted += 1
+              checked = validate_team(variant.export(), format="gen9ou")
+              if checked.valid:
+                  valid = (variant, checked)
+                  break
+              last_problems = checked.problems
+
+          print({"set_variants_attempted": attempted, "valid_found": valid is not None})
+          if valid is None:
+              print({"last_validation_problems": last_problems})
+          assert valid is not None, last_problems
+          variant, checked = valid
+          print("OPTIMIZER_LEGAL_TEAM_START")
+          print(checked.export)
+          print("OPTIMIZER_LEGAL_TEAM_END")
+          PY
       - name: Ingest 200 public Gen 9 OU replays
         run: |
           pokequant warehouse-replays \
