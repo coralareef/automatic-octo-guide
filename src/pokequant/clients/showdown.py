@@ -1,4 +1,5 @@
 import json
+import time
 import urllib.parse
 import urllib.request
 from typing import Any, Iterator
@@ -7,7 +8,7 @@ from typing import Any, Iterator
 BASE_REPLAY = "https://replay.pokemonshowdown.com"
 BASE_SITE = "https://pokemonshowdown.com"
 BASE_PLAY = "https://play.pokemonshowdown.com"
-USER_AGENT = "pokequant/0.1 (+https://github.com/coralareef/automatic-octo-guide)"
+USER_AGENT = "pokequant/0.2 (+https://github.com/coralareef/automatic-octo-guide)"
 
 
 def _get_json(url: str, timeout: float = 30.0) -> Any:
@@ -47,21 +48,31 @@ def search_replays(
 def iter_replays(
     *,
     user: str | None = None,
+    user2: str | None = None,
     format: str | None = None,
-    limit: int = 100,
+    limit: int | None = 100,
+    sleep_seconds: float = 0.0,
 ) -> Iterator[dict[str, Any]]:
-    """Paginate replay search using the documented `before` cursor.
+    """Paginate replay search using Showdown's documented `before` cursor.
 
-    Showdown returns up to 51 records; if record 51 exists, the first 50
-    belong to the current page and another page can be requested.
+    Showdown searches are limited to 51 results. The first 50 are the current
+    page; the 51st establishes that another page exists. The API documentation
+    says to use the uploadtime of the last result as the next cursor.
     """
     yielded = 0
     before: int | None = None
     seen_ids: set[str] = set()
-    while yielded < limit:
-        page = search_replays(user=user, format=format, before=before)
+
+    while limit is None or yielded < limit:
+        page = search_replays(
+            user=user,
+            user2=user2,
+            format=format,
+            before=before,
+        )
         if not page:
             break
+
         usable = page[:50]
         for replay in usable:
             replay_id = str(replay.get("id", ""))
@@ -70,14 +81,22 @@ def iter_replays(
             seen_ids.add(replay_id)
             yield replay
             yielded += 1
-            if yielded >= limit:
+            if limit is not None and yielded >= limit:
                 return
+
         if len(page) <= 50 or not usable:
             break
-        last_time = usable[-1].get("uploadtime")
-        if last_time is None:
+
+        cursor = page[-1].get("uploadtime")
+        if cursor is None:
             break
-        before = int(last_time)
+        next_before = int(cursor)
+        if before is not None and next_before >= before:
+            next_before = before - 1
+        before = next_before
+
+        if sleep_seconds > 0:
+            time.sleep(sleep_seconds)
 
 
 def get_user(username: str) -> dict[str, Any]:
