@@ -7,6 +7,11 @@ on:
       - ".github/workflows/live-data-smoke.yml"
       - "sim/**"
       - "src/pokequant/simulator.py"
+      - "src/pokequant/sets.py"
+      - "src/pokequant/optimizer/**"
+      - "src/pokequant/analysis/meta.py"
+      - "src/pokequant/analysis/threats.py"
+      - "src/pokequant/models.py"
       - "tests/fixtures/legal_gen9ou.txt"
 
 jobs:
@@ -95,9 +100,9 @@ jobs:
           variants = generate_team_set_candidates(
               top.members,
               records,
-              per_species=6,
-              beam_width=64,
-              limit=32,
+              per_species=8,
+              beam_width=96,
+              limit=48,
           )
           assert variants, "set generator returned no exact teams"
           valid = None
@@ -105,6 +110,8 @@ jobs:
           last_problems = ()
           for variant in variants:
               attempted += 1
+              if min(candidate.coherence_score for candidate in variant.sets) < 0.20:
+                  continue
               checked = validate_team(variant.export(), format="gen9ou")
               if checked.valid:
                   valid = (variant, checked)
@@ -116,6 +123,11 @@ jobs:
               print({"last_validation_problems": last_problems})
           assert valid is not None, last_problems
           variant, checked = valid
+          print("SET_COHERENCE", [
+              (candidate.species, candidate.item, round(candidate.coherence_score, 3))
+              for candidate in variant.sets
+          ])
+          assert min(candidate.coherence_score for candidate in variant.sets) >= 0.20
           print("OPTIMIZER_LEGAL_TEAM_START")
           print(checked.export)
           print("OPTIMIZER_LEGAL_TEAM_END")
