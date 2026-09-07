@@ -1,29 +1,41 @@
 Pikachu @ Light Ball
 Ability: Static
+EVs: 4 HP / 252 SpA / 252 Spe
+Timid Nature
 Tera Type: Electric
 - Thunderbolt
 
 Charizard @ Heavy-Duty Boots
 Ability: Blaze
+EVs: 4 HP / 252 SpA / 252 Spe
+Timid Nature
 Tera Type: Fire
 - Flamethrower
 
 Blastoise @ Leftovers
 Ability: Torrent
+EVs: 252 HP / 252 Def / 4 SpD
+Bold Nature
 Tera Type: Water
 - Surf
 
 Venusaur @ Black Sludge
 Ability: Overgrow
+EVs: 252 HP / 4 Def / 252 SpD
+Calm Nature
 Tera Type: Grass
 - Giga Drain
 
 Snorlax @ Leftovers
 Ability: Thick Fat
+EVs: 252 HP / 4 Def / 252 SpD
+Careful Nature
 Tera Type: Normal
 - Body Slam
 
 Gengar @ Choice Specs
 Ability: Cursed Body
+EVs: 4 HP / 252 SpA / 252 Spe
+Timid Nature
 Tera Type: Ghost
 - Shadow Ball
