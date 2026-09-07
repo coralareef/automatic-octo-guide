@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 import urllib.error
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -85,6 +86,8 @@ def ingest_replay_corpus(
                 summary = parse_replay(replay_fetcher(replay_id))
             except Exception:
                 failed += 1
+                if sleep_seconds > 0:
+                    time.sleep(sleep_seconds)
                 continue
             raw_rating = stub.get("rating")
             try:
@@ -100,6 +103,8 @@ def ingest_replay_corpus(
                 inserted += 1
             else:
                 duplicates += 1
+            if sleep_seconds > 0:
+                time.sleep(sleep_seconds)
     finally:
         conn.close()
     return {
