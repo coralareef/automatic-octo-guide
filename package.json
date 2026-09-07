@@ -1,0 +1,9 @@
+{
+  "name": "pokequant-showdown-sidecar",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Pinned Pokemon Showdown simulator sidecar for pokequant",
+  "dependencies": {
+    "pokemon-showdown": "0.11.11"
+  }
+}
