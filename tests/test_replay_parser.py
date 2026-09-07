@@ -29,6 +29,27 @@ class ReplayParserTests(unittest.TestCase):
         self.assertEqual(result.teams["p1"], {"Great Tusk"})
         self.assertEqual(result.teams["p2"], {"Dragapult"})
 
+    def test_partial_log_and_transform_do_not_invent_team_members(self):
+        payload = {
+            "id": "gen9ou-partial",
+            "format": "gen9ou",
+            "log": "\n".join(
+                [
+                    "|player|p1|Alice|",
+                    "|poke|p1|Ditto, L100|",
+                    "|switch|p1a: Ditto|Ditto, L100|100/100",
+                    "|detailschange|p1a: Ditto|Great Tusk, L100|",
+                    "|turn|not-a-number",
+                ]
+            ),
+        }
+        result = parse_replay(payload)
+        self.assertEqual(result.players, ("Alice",))
+        self.assertEqual(result.teams["p1"], {"Ditto"})
+        self.assertEqual(result.teams["p2"], set())
+        self.assertEqual(result.turns, 0)
+        self.assertIsNone(result.winner)
+
 
 if __name__ == "__main__":
     unittest.main()
