@@ -35,6 +35,19 @@ jobs:
             --sleep 0.05
       - name: Warehouse stats
         run: pokequant warehouse-stats --db data/live-smoke.db
+      - name: Validate canonical and high-ladder rows
+        run: |
+          python - <<'PY'
+          import sqlite3
+          db = sqlite3.connect("data/live-smoke.db")
+          total = db.execute("SELECT COUNT(*) FROM replays WHERE format='gen9ou'").fetchone()[0]
+          rated = db.execute("SELECT COUNT(*) FROM replays WHERE format='gen9ou' AND rating IS NOT NULL").fetchone()[0]
+          decisive = db.execute("SELECT COUNT(*) FROM replays WHERE format='gen9ou' AND rating>=1400 AND winner_side IS NOT NULL").fetchone()[0]
+          print({"canonical": total, "rated": rated, "high_ladder_decisive": decisive})
+          assert total == 200, ("canonical format regression", total)
+          assert rated > 0, "no ratings recovered"
+          assert decisive > 0, "no high-ladder decisive rows"
+          PY
       - name: Empirical Pokemon sample
         run: |
           pokequant empirical-pokemon \
