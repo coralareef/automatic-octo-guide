@@ -1,0 +1,69 @@
+name: Live data smoke
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/live-data-smoke.yml"
+
+jobs:
+  live-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e .
+      - name: Unit tests
+        run: python -m unittest discover -s tests -v
+      - name: Ingest August 2026 high-ladder meta
+        run: |
+          pokequant warehouse-meta \
+            --db data/live-smoke.db \
+            --start 2026-08 \
+            --end 2026-08 \
+            --format gen9ou \
+            --rating 1825
+      - name: Ingest 200 public Gen 9 OU replays
+        run: |
+          pokequant warehouse-replays \
+            --db data/live-smoke.db \
+            --format gen9ou \
+            --limit 200 \
+            --sleep 0.05
+      - name: Warehouse stats
+        run: pokequant warehouse-stats --db data/live-smoke.db
+      - name: Empirical Pokemon sample
+        run: |
+          pokequant empirical-pokemon \
+            --db data/live-smoke.db \
+            --format gen9ou \
+            --min-rating 1400 \
+            --prior 12 \
+            --top 20
+      - name: Empirical pair sample
+        run: |
+          pokequant empirical-pairs \
+            --db data/live-smoke.db \
+            --format gen9ou \
+            --min-rating 1400 \
+            --min-games 2 \
+            --prior 12 \
+            --top 20
+      - name: Empirical matchup sample
+        run: |
+          pokequant empirical-matchups \
+            --db data/live-smoke.db \
+            --format gen9ou \
+            --min-rating 1400 \
+            --min-games 3 \
+            --prior 6 \
+            --top 20
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pokequant-live-smoke
+          path: data/live-smoke.db
+          if-no-files-found: warn
