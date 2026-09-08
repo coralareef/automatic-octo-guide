@@ -114,16 +114,52 @@ class SetCandidateTests(unittest.TestCase):
         self.assertLess(bad, 0.1)
         self.assertGreater(good, 0.9)
 
-    def test_weather_rock_requires_matching_manual_weather(self):
+    def test_weather_rock_accepts_matching_move_or_ability(self):
         spread = Spread("Timid", (0, 0, 0, 252, 4, 252))
         bad = set_coherence(
             item="Damp Rock",
+            ability="Keen Eye",
             moves=("hydropump", "hurricane", "roost", "uturn"),
             spread=spread,
         )
-        good = set_coherence(
+        manual = set_coherence(
             item="Damp Rock",
+            ability="Keen Eye",
             moves=("raindance", "hurricane", "roost", "uturn"),
+            spread=spread,
+        )
+        automatic = set_coherence(
+            item="Damp Rock",
+            ability="Drizzle",
+            moves=("hydropump", "hurricane", "roost", "uturn"),
+            spread=spread,
+        )
+        self.assertLess(bad, 0.1)
+        self.assertGreater(manual, 0.9)
+        self.assertGreater(automatic, 0.9)
+
+    def test_terrain_extender_accepts_surge_ability(self):
+        spread = Spread("Jolly", (0, 252, 0, 0, 4, 252))
+        good = set_coherence(
+            item="Terrain Extender",
+            ability="Grassy Surge",
+            moves=("woodhammer", "knockoff", "uturn", "grassyglide"),
+            spread=spread,
+        )
+        self.assertGreater(good, 0.9)
+
+    def test_booster_energy_requires_paradox_ability(self):
+        spread = Spread("Timid", (0, 0, 0, 252, 4, 252))
+        bad = set_coherence(
+            item="Booster Energy",
+            ability="Pressure",
+            moves=("moonblast", "thunderbolt", "focusblast", "shadowball"),
+            spread=spread,
+        )
+        good = set_coherence(
+            item="Booster Energy",
+            ability="Quark Drive",
+            moves=("moonblast", "thunderbolt", "focusblast", "shadowball"),
             spread=spread,
         )
         self.assertLess(bad, 0.1)
