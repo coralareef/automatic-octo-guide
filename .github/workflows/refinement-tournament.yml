@@ -34,7 +34,7 @@ jobs:
           from pokequant.analysis.population import generate_opponent_population
           from pokequant.clients.smogon import get_chaos
           from pokequant.config import MetaTarget
-          from pokequant.evaluation import evaluate_candidate
+          from pokequant.evaluation import evaluate_candidate_batched
           from pokequant.optimizer.team import (
               beam_search,
               roster_swap_distance,
@@ -43,7 +43,7 @@ jobs:
           )
           from pokequant.proposals import build_legal_opponent_proposals
           from pokequant.sets import generate_team_set_candidates
-          from pokequant.simulator import simulate_heuristic, validate_team
+          from pokequant.simulator import simulate_heuristic_batch, validate_team
 
           target = MetaTarget(month="2026-08", format="gen9ou", rating=1825)
           records = parse_chaos(get_chaos(target))
@@ -91,9 +91,9 @@ jobs:
               for variant in generate_team_set_candidates(
                   team.members,
                   records,
-                  per_species=10,
-                  beam_width=128,
-                  limit=64,
+                  per_species=12,
+                  beam_width=160,
+                  limit=80,
               ):
                   attempts += 1
                   if min(piece.coherence_score for piece in variant.sets) < 0.20:
@@ -139,9 +139,9 @@ jobs:
               validator=validate_team,
               format="gen9ou",
               variants_per_archetype=1,
-              per_species=8,
-              beam_width=96,
-              proposal_limit=32,
+              per_species=12,
+              beam_width=160,
+              proposal_limit=40,
               coherence_floor=0.20,
           )
           print("STAGE1_OPPONENT_STATS", stats6)
@@ -153,10 +153,10 @@ jobs:
 
           stage1 = []
           for source, row, export, variant in exact:
-              result = evaluate_candidate(
+              result = evaluate_candidate_batched(
                   export,
                   opponents6,
-                  simulator=simulate_heuristic,
+                  batch_simulator=simulate_heuristic_batch,
                   format="gen9ou",
                   seeds_per_opponent=1,
                   base_seed=2026090801,
@@ -204,9 +204,9 @@ jobs:
               validator=validate_team,
               format="gen9ou",
               variants_per_archetype=1,
-              per_species=8,
-              beam_width=96,
-              proposal_limit=40,
+              per_species=12,
+              beam_width=160,
+              proposal_limit=48,
               coherence_floor=0.20,
           )
           print("STAGE2_OPPONENT_STATS", stats8)
@@ -218,12 +218,12 @@ jobs:
 
           stage2 = []
           for _, _, source, row, export, variant, _ in finalists:
-              result = evaluate_candidate(
+              result = evaluate_candidate_batched(
                   export,
                   opponents8,
-                  simulator=simulate_heuristic,
+                  batch_simulator=simulate_heuristic_batch,
                   format="gen9ou",
-                  seeds_per_opponent=2,
+                  seeds_per_opponent=3,
                   base_seed=2026090802,
                   max_turns=500,
                   risk_lambda=0.20,
