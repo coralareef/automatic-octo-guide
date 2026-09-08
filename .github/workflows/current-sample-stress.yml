@@ -28,11 +28,11 @@ jobs:
           from pokequant.analysis.stress import CURRENT_OU_STRESS_ROSTERS, stress_archetypes
           from pokequant.clients.smogon import get_chaos
           from pokequant.config import MetaTarget
-          from pokequant.evaluation import evaluate_candidate
+          from pokequant.evaluation import evaluate_candidate_batched
           from pokequant.optimizer.team import beam_search, score_team
           from pokequant.proposals import build_legal_opponent_proposals
           from pokequant.sets import generate_team_set_candidates
-          from pokequant.simulator import simulate_heuristic, validate_team
+          from pokequant.simulator import simulate_heuristic_batch, validate_team
 
           target = MetaTarget(month="2026-08", format="gen9ou", rating=1825)
           records = parse_chaos(get_chaos(target))
@@ -63,9 +63,7 @@ jobs:
 
           candidates = []
           for label, members in rosters:
-              static = score_team(
-                  members, records, rank_scores, threat_top_n=35
-              )
+              static = score_team(members, records, rank_scores, threat_top_n=35)
               legal = None
               variant = None
               for proposed in generate_team_set_candidates(
@@ -95,9 +93,8 @@ jobs:
                   ],
               })
 
-          stress_rows = stress_archetypes()
           opponents, stats = build_legal_opponent_proposals(
-              stress_rows,
+              stress_archetypes(),
               records,
               validator=validate_team,
               format="gen9ou",
@@ -125,10 +122,10 @@ jobs:
 
           results = []
           for label, static, export, variant in candidates:
-              result = evaluate_candidate(
+              result = evaluate_candidate_batched(
                   export,
                   opponents,
-                  simulator=simulate_heuristic,
+                  batch_simulator=simulate_heuristic_batch,
                   format="gen9ou",
                   seeds_per_opponent=1,
                   base_seed=2026090803,
@@ -164,10 +161,10 @@ jobs:
 
           deep = []
           for _, _, label, static, export, variant, _, _ in finalists:
-              result = evaluate_candidate(
+              result = evaluate_candidate_batched(
                   export,
                   opponents,
-                  simulator=simulate_heuristic,
+                  batch_simulator=simulate_heuristic_batch,
                   format="gen9ou",
                   seeds_per_opponent=3,
                   base_seed=2026090804,
