@@ -1,0 +1,94 @@
+name: Static refinement diagnostic
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/static-refinement-diagnostic.yml"
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e .
+      - name: Inspect current frontier
+        run: |
+          python - <<'PY'
+          from pokequant.analysis.meta import parse_chaos, rank_pokemon
+          from pokequant.analysis.population import generate_opponent_population, team_swap_distance
+          from pokequant.clients.smogon import get_chaos
+          from pokequant.config import MetaTarget
+          from pokequant.optimizer.team import beam_search, select_diverse_candidates, single_swap_mutations
+          from pokequant.sets import generate_set_candidates
+
+          target = MetaTarget(month="2026-08", format="gen9ou", rating=1825)
+          records = parse_chaos(get_chaos(target))
+          ranked = rank_pokemon(records)
+          beam = beam_search(records, ranked, pool_size=55, beam_width=750, team_size=6, threat_top_n=35)
+          incumbent = beam[0]
+          print("INCUMBENT", incumbent.members, round(incumbent.score, 4), round(incumbent.threat_score, 4))
+
+          mutations = single_swap_mutations(
+              incumbent.members, records, ranked, pool_size=55, per_slot=2, threat_top_n=35
+          )
+          print("TOP_MUTATIONS")
+          base = set(incumbent.members)
+          for idx, row in enumerate(mutations[:12], 1):
+              new = set(row.members)
+              print(idx, {
+                  "members": row.members,
+                  "removed": sorted(base - new),
+                  "added": sorted(new - base),
+                  "score": round(row.score, 4),
+                  "threat": round(row.threat_score, 4),
+              })
+
+          diverse = select_diverse_candidates(beam, limit=8, min_swaps=2)
+          print("DIVERSE_FRONTIER")
+          for idx, row in enumerate(diverse, 1):
+              print(idx, {
+                  "members": row.members,
+                  "score": round(row.score, 4),
+                  "threat": round(row.threat_score, 4),
+                  "swaps": len(base - set(row.members)),
+              })
+
+          archetypes = generate_opponent_population(
+              records,
+              pool_size=60,
+              beam_width=1200,
+              team_size=6,
+              top=10,
+              candidate_multiplier=14,
+              min_prototype_swaps=2,
+              diversity_strength=1.8,
+          )
+          print("DIVERSE_OPPONENTS")
+          for idx, row in enumerate(archetypes, 1):
+              print(idx, {
+                  "members": row.members,
+                  "weight": round(row.proposal_probability, 4),
+                  "score": round(row.score, 4),
+              })
+          print("MIN_OPPONENT_SWAP_DISTANCE", min(
+              team_swap_distance(a.members, b.members)
+              for i, a in enumerate(archetypes)
+              for b in archetypes[i + 1:]
+          ))
+
+          print("ZAMAZENTA_SET_PROPOSALS")
+          for idx, row in enumerate(generate_set_candidates(records["Zamazenta"], limit=8), 1):
+              print(idx, {
+                  "item": row.item,
+                  "tera": row.tera_type,
+                  "spread": (row.spread.nature, row.spread.evs),
+                  "moves": row.moves,
+                  "marginal": round(row.marginal_score, 6),
+                  "coherence": round(row.coherence_score, 4),
+              })
+          PY
