@@ -1,0 +1,209 @@
+name: Current sample stress
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/current-sample-stress.yml"
+      - "src/pokequant/analysis/stress.py"
+
+jobs:
+  stress:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: python -m pip install -e .
+      - run: npm install --no-audit --no-fund
+      - name: Run current-structure stress screen
+        run: |
+          python - <<'PY'
+          from pokequant.analysis.meta import parse_chaos, rank_pokemon
+          from pokequant.analysis.stress import CURRENT_OU_STRESS_ROSTERS, stress_archetypes
+          from pokequant.clients.smogon import get_chaos
+          from pokequant.config import MetaTarget
+          from pokequant.evaluation import evaluate_candidate
+          from pokequant.optimizer.team import beam_search, score_team
+          from pokequant.proposals import build_legal_opponent_proposals
+          from pokequant.sets import generate_team_set_candidates
+          from pokequant.simulator import simulate_heuristic, validate_team
+
+          target = MetaTarget(month="2026-08", format="gen9ou", rating=1825)
+          records = parse_chaos(get_chaos(target))
+          ranked = rank_pokemon(records)
+          rank_scores = {row.name: row.score for row in ranked}
+          incumbent = beam_search(
+              records, ranked, pool_size=55, beam_width=750, team_size=6, threat_top_n=35
+          )[0]
+
+          rosters = [
+              ("incumbent", incumbent.members),
+              (
+                  "kyurem_to_cresselia",
+                  tuple("Cresselia" if x == "Kyurem" else x for x in incumbent.members),
+              ),
+              (
+                  "kyurem_to_ogerpon_w",
+                  tuple("Ogerpon-Wellspring" if x == "Kyurem" else x for x in incumbent.members),
+              ),
+              (
+                  "samu_cress_two_swap",
+                  (
+                      "Great Tusk", "Gholdengo", "Kingambit", "Zamazenta",
+                      "Samurott-Hisui", "Cresselia",
+                  ),
+              ),
+          ]
+
+          candidates = []
+          for label, members in rosters:
+              static = score_team(
+                  members, records, rank_scores, threat_top_n=35
+              )
+              legal = None
+              variant = None
+              for proposed in generate_team_set_candidates(
+                  members,
+                  records,
+                  per_species=12,
+                  beam_width=160,
+                  limit=80,
+              ):
+                  if min(piece.coherence_score for piece in proposed.sets) < 0.20:
+                      continue
+                  checked = validate_team(proposed.export(), format="gen9ou")
+                  if checked.valid:
+                      legal = checked.export
+                      variant = proposed
+                      break
+              assert legal is not None, f"no legal exact team for {label}"
+              candidates.append((label, static, legal, variant))
+              print("STRESS_CANDIDATE", {
+                  "label": label,
+                  "members": members,
+                  "static_score": round(static.score, 4),
+                  "threat": round(static.threat_score, 4),
+                  "set_coherence": [
+                      (piece.species, piece.item, round(piece.coherence_score, 3))
+                      for piece in variant.sets
+                  ],
+              })
+
+          stress_rows = stress_archetypes()
+          opponents, stats = build_legal_opponent_proposals(
+              stress_rows,
+              records,
+              validator=validate_team,
+              format="gen9ou",
+              variants_per_archetype=1,
+              per_species=12,
+              beam_width=160,
+              proposal_limit=48,
+              coherence_floor=0.20,
+          )
+          print("STRESS_OPPONENT_BUILD", stats)
+          style_by_members = {
+              frozenset(row.members): (row.style, row.sample_name)
+              for row in CURRENT_OU_STRESS_ROSTERS
+          }
+          print("STRESS_OPPONENTS", [
+              {
+                  "style": style_by_members.get(frozenset(row.members), ("unknown", ""))[0],
+                  "sample": style_by_members.get(frozenset(row.members), ("", "unknown"))[1],
+                  "members": row.members,
+                  "weight": round(row.weight, 4),
+              }
+              for row in opponents
+          ])
+          assert len(opponents) >= 6, "stress suite lost too many current structures"
+
+          results = []
+          for label, static, export, variant in candidates:
+              result = evaluate_candidate(
+                  export,
+                  opponents,
+                  simulator=simulate_heuristic,
+                  format="gen9ou",
+                  seeds_per_opponent=1,
+                  base_seed=2026090803,
+                  max_turns=500,
+                  risk_lambda=0.0,
+                  cvar_alpha=0.20,
+                  strict_protocol=True,
+              )
+              styled = []
+              for m in result.matchups:
+                  style, sample = style_by_members.get(frozenset(m.opponent), ("unknown", "unknown"))
+                  styled.append((style, sample, m.weight, m.win_rate))
+              worst = min((row[3] for row in styled), default=0.0)
+              results.append((result.expected_win, worst, label, static, export, variant, styled, result))
+              print("STRESS_STAGE1_RESULT", {
+                  "label": label,
+                  "members": static.members,
+                  "mean_win": round(result.expected_win, 4),
+                  "worst_style_win": round(worst, 4),
+                  "matchup_std": round(result.matchup_std, 4),
+                  "protocol_errors": result.protocol_errors,
+                  "styles": [
+                      (style, sample, round(weight, 4), round(win, 4))
+                      for style, sample, weight, win in styled
+                  ],
+              })
+          results.sort(key=lambda row: (row[0], row[1]), reverse=True)
+          finalists = results[:2]
+          print("STRESS_STAGE1_RANKING", [
+              (idx + 1, row[2], round(row[0], 4), round(row[1], 4))
+              for idx, row in enumerate(results)
+          ])
+
+          deep = []
+          for _, _, label, static, export, variant, _, _ in finalists:
+              result = evaluate_candidate(
+                  export,
+                  opponents,
+                  simulator=simulate_heuristic,
+                  format="gen9ou",
+                  seeds_per_opponent=3,
+                  base_seed=2026090804,
+                  max_turns=500,
+                  risk_lambda=0.0,
+                  cvar_alpha=0.20,
+                  strict_protocol=True,
+              )
+              styled = []
+              for m in result.matchups:
+                  style, sample = style_by_members.get(frozenset(m.opponent), ("unknown", "unknown"))
+                  styled.append((style, sample, m.weight, m.win_rate))
+              worst = min((row[3] for row in styled), default=0.0)
+              deep.append((result.expected_win, worst, label, static, export, variant, styled, result))
+              print("STRESS_DEEP_RESULT", {
+                  "label": label,
+                  "members": static.members,
+                  "mean_win": round(result.expected_win, 4),
+                  "worst_style_win": round(worst, 4),
+                  "matchup_std": round(result.matchup_std, 4),
+                  "ci": (round(result.ci_low, 4), round(result.ci_high, 4)),
+                  "styles": [
+                      (style, sample, round(weight, 4), round(win, 4))
+                      for style, sample, weight, win in styled
+                  ],
+              })
+          deep.sort(key=lambda row: (row[0], row[1]), reverse=True)
+          winner = deep[0]
+          print("STRESS_WINNER", {
+              "label": winner[2],
+              "members": winner[3].members,
+              "mean_win": round(winner[0], 4),
+              "worst_style_win": round(winner[1], 4),
+          })
+          print("STRESS_WINNER_EXACT_START")
+          print(winner[4])
+          print("STRESS_WINNER_EXACT_END")
+          assert winner[7].protocol_errors == 0
+          PY
