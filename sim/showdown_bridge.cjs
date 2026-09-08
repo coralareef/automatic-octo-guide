@@ -495,6 +495,25 @@ async function simulateHeuristic(input) {
   };
 }
 
+async function simulateHeuristicBatch(input) {
+  const battles = Array.isArray(input.battles) ? input.battles : [];
+  if (!battles.length) throw new Error('battles must be a non-empty array');
+  const defaults = {
+    format: input.format || 'gen9ou',
+    maxTurns: Number(input.maxTurns || 1000),
+  };
+  const results = [];
+  for (const battle of battles) {
+    results.push(await simulateHeuristic({
+      ...defaults,
+      ...battle,
+      format: battle.format || defaults.format,
+      maxTurns: Number(battle.maxTurns || defaults.maxTurns),
+    }));
+  }
+  return {results};
+}
+
 async function main() {
   const command = process.argv[2] || 'validate';
   try {
@@ -506,6 +525,8 @@ async function main() {
       output = await simulateDefault(input);
     } else if (command === 'simulate-heuristic') {
       output = await simulateHeuristic(input);
+    } else if (command === 'simulate-heuristic-batch') {
+      output = await simulateHeuristicBatch(input);
     } else {
       throw new Error(`unknown command: ${command}`);
     }
