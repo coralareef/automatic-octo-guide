@@ -1,0 +1,83 @@
+{
+  "generated_from": {
+    "workflow": "Refinement tournament",
+    "run_id": 34206124917,
+    "commit": "dc0adce1437b96cb8d3500a232b7440b444970ba",
+    "completed_at": "2026-09-08T09:03:17Z"
+  },
+  "target": {
+    "format": "gen9ou",
+    "current_month": "2026-08",
+    "rating": 1825,
+    "historical_start": "2023-01",
+    "historical_end": "2026-08",
+    "half_life_months": 3.0
+  },
+  "evidence": {
+    "historical_snapshots": 44,
+    "pokemon_rows": 10152,
+    "eligible_current_species": 230,
+    "missing_snapshots": 0,
+    "failed_snapshots": 0,
+    "source": "Smogon chaos statistics derived from Pokemon Showdown battles",
+    "public_replay_layer": "available when a local pokequant.db replay corpus is attached"
+  },
+  "leading_candidate": {
+    "members": [
+      "Great Tusk",
+      "Zamazenta",
+      "Gholdengo",
+      "Samurott-Hisui",
+      "Dragonite",
+      "Kyurem"
+    ],
+    "source": "single-slot mutation",
+    "static_score": 59.9344,
+    "expected_win": 0.7464,
+    "objective": 0.6994,
+    "risk": 0.2351,
+    "downside_cvar": 0.4626,
+    "matchup_std": 0.1621,
+    "ci_low": 0.5369,
+    "ci_high": 0.9560,
+    "configured_simulator_battles": 48,
+    "status": "leading candidate - not final"
+  },
+  "stage1_frontier": [
+    {"members": ["Great Tusk","Zamazenta","Gholdengo","Kingambit","Ogerpon-Wellspring","Kyurem"], "expected_win": 0.8996, "objective": 0.8357, "risk": 0.3199, "static_score": 60.6257},
+    {"members": ["Great Tusk","Zamazenta","Gholdengo","Samurott-Hisui","Dragonite","Kyurem"], "expected_win": 0.8835, "objective": 0.8205, "risk": 0.3146, "static_score": 59.9344},
+    {"members": ["Great Tusk","Zamazenta","Gholdengo","Kingambit","Dragonite","Ogerpon-Wellspring"], "expected_win": 0.5828, "objective": 0.5580, "risk": 0.1240, "static_score": 61.1749},
+    {"members": ["Great Tusk","Zamazenta","Gholdengo","Kingambit","Ogerpon-Wellspring","Ting-Lu"], "expected_win": 0.5185, "objective": 0.5087, "risk": 0.0489, "static_score": 60.3258},
+    {"members": ["Great Tusk","Zamazenta","Ogerpon-Wellspring","Kingambit","Dragonite","Kyurem"], "expected_win": 0.5308, "objective": 0.4661, "risk": 0.3233, "static_score": 59.7489},
+    {"members": ["Great Tusk","Zamazenta","Gholdengo","Kingambit","Raging Bolt","Samurott-Hisui"], "expected_win": 0.5062, "objective": 0.4370, "risk": 0.3461, "static_score": 59.6919},
+    {"members": ["Great Tusk","Zamazenta","Gholdengo","Kingambit","Dragonite","Kyurem"], "expected_win": 0.1377, "objective": 0.0969, "risk": 0.2044, "static_score": 61.3672},
+    {"members": ["Great Tusk","Zamazenta","Gholdengo","Kingambit","Gliscor","Iron Valiant"], "expected_win": 0.0827, "objective": 0.0579, "risk": 0.1240, "static_score": 60.0471}
+  ],
+  "stage2_finalists": [
+    {"members": ["Great Tusk","Zamazenta","Gholdengo","Samurott-Hisui","Dragonite","Kyurem"], "expected_win": 0.7464, "objective": 0.6994, "risk": 0.2351, "ci_low": 0.5369, "ci_high": 0.9560},
+    {"members": ["Great Tusk","Zamazenta","Gholdengo","Kingambit","Ogerpon-Wellspring","Kyurem"], "expected_win": 0.4786, "objective": 0.4364, "risk": 0.2109, "ci_low": 0.2380, "ci_high": 0.7192}
+  ],
+  "opponent_archetypes": [
+    {"id": "archetype-01", "members": ["Great Tusk","Zamazenta","Gholdengo","Kingambit","Dragonite","Ogerpon-Wellspring"], "weight": 0.5694, "leading_candidate_win_rate": 0.8333},
+    {"id": "archetype-02", "members": ["Great Tusk","Zamazenta","Gholdengo","Kingambit","Kyurem","Glimmora"], "weight": 0.1274, "leading_candidate_win_rate": 0.6667},
+    {"id": "archetype-03", "members": ["Great Tusk","Zamazenta","Gholdengo","Dragonite","Kyurem","Samurott-Hisui"], "weight": 0.1111, "leading_candidate_win_rate": 0.5000},
+    {"id": "archetype-04", "members": ["Great Tusk","Zamazenta","Kingambit","Ogerpon-Wellspring","Kyurem","Raging Bolt"], "weight": 0.0723, "leading_candidate_win_rate": 0.8333},
+    {"id": "archetype-05", "members": ["Great Tusk","Gholdengo","Kingambit","Dragonite","Kyurem","Iron Valiant"], "weight": 0.0408, "leading_candidate_win_rate": 1.0000},
+    {"id": "archetype-06", "members": ["Great Tusk","Zamazenta","Gholdengo","Dragonite","Ting-Lu","Raging Bolt"], "weight": 0.0389, "leading_candidate_win_rate": 0.3333},
+    {"id": "archetype-07", "members": ["Great Tusk","Zamazenta","Gholdengo","Kingambit","Raging Bolt","Iron Valiant"], "weight": 0.0321, "leading_candidate_win_rate": 0.5000},
+    {"id": "archetype-08", "members": ["Great Tusk","Zamazenta","Gholdengo","Ogerpon-Wellspring","Kyurem","Ting-Lu"], "weight": 0.0079, "leading_candidate_win_rate": 0.1667}
+  ],
+  "exact_team_export": "Great Tusk @ Rocky Helmet  \nAbility: Protosynthesis  \nTera Type: Steel  \nEVs: 252 Atk / 4 SpD / 252 Spe  \nJolly Nature  \n- Rapid Spin  \n- Headlong Rush  \n- Ice Spinner  \n- Stealth Rock  \n\nZamazenta @ Leftovers  \nAbility: Dauntless Shield  \nTera Type: Steel  \nEVs: 252 Atk / 4 SpD / 252 Spe  \nJolly Nature  \n- Crunch  \n- Close Combat  \n- Heavy Slam  \n- Ice Fang  \n\nGholdengo @ Air Balloon  \nAbility: Good as Gold  \nTera Type: Fairy  \nEVs: 252 SpA / 4 SpD / 252 Spe  \nTimid Nature  \n- Make It Rain  \n- Shadow Ball  \n- Recover  \n- Nasty Plot  \n\nSamurott-Hisui @ Assault Vest  \nAbility: Sharpness  \nTera Type: Poison  \nEVs: 252 Atk / 4 Def / 252 Spe  \nAdamant Nature  \n- Ceaseless Edge  \n- Sucker Punch  \n- Knock Off  \n- Razor Shell  \n\nDragonite @ Heavy-Duty Boots  \nAbility: Multiscale  \nTera Type: Normal  \nEVs: 252 Atk / 4 SpD / 252 Spe  \nJolly Nature  \n- Earthquake  \n- Dragon Dance  \n- Roost  \n- Extreme Speed  \n\nKyurem @ Assault Vest  \nAbility: Pressure  \nTera Type: Ice  \nEVs: 252 SpA / 4 SpD / 252 Spe  \nTimid Nature  \n- Earth Power  \n- Freeze-Dry  \n- Ice Beam  \n- Draco Meteor",
+  "research_gates": [
+    {"gate": "Historical multi-month 1825 evidence", "status": "complete", "detail": "44 monthly snapshots, Jan 2023-Aug 2026"},
+    {"gate": "Public Showdown replay ingestion", "status": "partial", "detail": "pipeline works; corpus size depends on retrievable public replays"},
+    {"gate": "Replay-derived outcomes / pair synergy / matchup matrix", "status": "implemented", "detail": "available when replay warehouse is attached"},
+    {"gate": "Exact-set generation and coherence filters", "status": "implemented", "detail": "current 1825 battle-derived marginals + role coherence"},
+    {"gate": "Official Showdown legality validation", "status": "complete", "detail": "candidate teams validated in gen9ou"},
+    {"gate": "Official Showdown simulation", "status": "complete", "detail": "paired side-swapped seeded battles"},
+    {"gate": "Battle policy", "status": "baseline", "detail": "symmetric heuristic policy; stronger policy still desirable"},
+    {"gate": "All-ladder + 1695 + 1825 blended evidence", "status": "not yet", "detail": "current tournament is 1825 historical evidence"},
+    {"gate": "Large Monte Carlo sample", "status": "not yet", "detail": "current finalist stage uses 48 configured simulator battles"},
+    {"gate": "Out-of-sample future-month backtest", "status": "not yet", "detail": "required before final confidence claim"}
+  ]
+}
