@@ -4,7 +4,7 @@ import json
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +26,13 @@ class SimulationResult:
     seed: str
     policy: str = "default"
     errors: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class SimulationCase:
+    p1team: str
+    p2team: str
+    seed: str
 
 
 def _run_bridge(
@@ -146,3 +153,46 @@ def simulate_heuristic(
         timeout=timeout,
     )
     return _simulation_result(payload)
+
+
+def simulate_heuristic_batch(
+    cases: Iterable[SimulationCase],
+    *,
+    format: str = "gen9ou",
+    max_turns: int = 1000,
+    repo_root: str | Path | None = None,
+    node: str = "node",
+    timeout: float = 600.0,
+) -> tuple[SimulationResult, ...]:
+    """Run many seeded battles inside one Node/Showdown process.
+
+    This preserves the exact same per-battle policy and seeds as
+    ``simulate_heuristic`` while amortizing Python->Node process startup.
+    """
+    rows = tuple(cases)
+    if not rows:
+        return ()
+    payload = _run_bridge(
+        "simulate-heuristic-batch",
+        {
+            "format": format,
+            "maxTurns": max_turns,
+            "battles": [
+                {
+                    "p1team": row.p1team,
+                    "p2team": row.p2team,
+                    "seed": row.seed,
+                }
+                for row in rows
+            ],
+        },
+        repo_root=repo_root,
+        node=node,
+        timeout=timeout,
+    )
+    results = tuple(_simulation_result(row) for row in payload.get("results", []))
+    if len(results) != len(rows):
+        raise RuntimeError(
+            f"Showdown batch returned {len(results)} results for {len(rows)} cases"
+        )
+    return results
