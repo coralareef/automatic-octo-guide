@@ -62,18 +62,16 @@ _KNOWN_STATUS_MOVES = _CHOICE_BAD_MOVES | {
     "willowisp",
 }
 
-_ITEM_ROLE_REQUIREMENTS: dict[str, set[str]] = {
-    "lightclay": {"reflect", "lightscreen", "auroraveil"},
-    "damprock": {"raindance"},
-    "heatrock": {"sunnyday"},
-    "smoothrock": {"sandstorm"},
-    "icyrock": {"snowscape", "hail"},
-    "terrainextender": {
-        "electricterrain",
-        "grassyterrain",
-        "mistyterrain",
-        "psychicterrain",
-    },
+_ITEM_ROLE_REQUIREMENTS: dict[str, tuple[set[str], set[str]]] = {
+    "lightclay": ({"reflect", "lightscreen", "auroraveil"}, set()),
+    "damprock": ({"raindance"}, {"drizzle"}),
+    "heatrock": ({"sunnyday"}, {"drought", "orichalcumpulse"}),
+    "smoothrock": ({"sandstorm"}, {"sandstream"}),
+    "icyrock": ({"snowscape", "hail"}, {"snowwarning"}),
+    "terrainextender": (
+        {"electricterrain", "grassyterrain", "mistyterrain", "psychicterrain"},
+        {"electricsurge", "grassysurge", "mistysurge", "psychicsurge", "hadronengine"},
+    ),
 }
 
 
@@ -154,15 +152,17 @@ def set_coherence(
     item: str | None,
     moves: tuple[str, ...],
     spread: Spread,
+    ability: str | None = None,
 ) -> float:
     """Heuristic proposal penalty for obviously self-conflicting legal sets.
 
     These rules do not claim to model battle value. They prevent independent
     Smogon marginals from promoting combinations such as Choice Scarf + Nasty
-    Plot + Recover, Assault Vest + status moves, or Light Clay without screens.
-    Simulation remains the final arbiter among coherent legal proposals.
+    Plot + Recover, Assault Vest + status moves, or role-extender items without
+    the matching move/ability. Simulation remains the final arbiter.
     """
     item_id = _id(item)
+    ability_id = _id(ability)
     move_ids = {_id(move) for move in moves}
     score = 1.0
 
@@ -170,10 +170,14 @@ def set_coherence(
         score *= 0.03
     if item_id == "assaultvest" and move_ids & _KNOWN_STATUS_MOVES:
         score *= 0.01
-
-    required_moves = _ITEM_ROLE_REQUIREMENTS.get(item_id)
-    if required_moves is not None and not (move_ids & required_moves):
+    if item_id == "boosterenergy" and ability_id not in {"quarkdrive", "protosynthesis"}:
         score *= 0.02
+
+    requirement = _ITEM_ROLE_REQUIREMENTS.get(item_id)
+    if requirement is not None:
+        required_moves, required_abilities = requirement
+        if not (move_ids & required_moves) and ability_id not in required_abilities:
+            score *= 0.02
 
     # Body Press is Defense-scaled. Iron Defense is usually selected to enable
     # Body Press; mixing Iron Defense into a conventional Attack set is a common
@@ -292,7 +296,12 @@ def generate_set_candidates(
             log_score += 0.6 * _feature_log_score(tera_v, mon.tera_types)
         if mon.spreads:
             log_score += _feature_log_score(spread_v, mon.spreads)
-        coherence = set_coherence(item=item, moves=moves, spread=spread)
+        coherence = set_coherence(
+            item=item,
+            ability=ability,
+            moves=moves,
+            spread=spread,
+        )
         log_score += 1.5 * math.log(max(coherence, 1e-12))
         # Convert the log score to a monotonic, numerically stable display score.
         marginal = math.exp(
