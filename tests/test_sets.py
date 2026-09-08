@@ -99,6 +99,36 @@ class SetCandidateTests(unittest.TestCase):
         )
         self.assertLess(bad, 0.1)
 
+    def test_light_clay_requires_a_screen_move(self):
+        spread = Spread("Jolly", (0, 252, 0, 0, 4, 252))
+        bad = set_coherence(
+            item="Light Clay",
+            moves=("closecombat", "crunch", "heavyslam", "icefang"),
+            spread=spread,
+        )
+        good = set_coherence(
+            item="Light Clay",
+            moves=("reflect", "lightscreen", "closecombat", "crunch"),
+            spread=spread,
+        )
+        self.assertLess(bad, 0.1)
+        self.assertGreater(good, 0.9)
+
+    def test_weather_rock_requires_matching_manual_weather(self):
+        spread = Spread("Timid", (0, 0, 0, 252, 4, 252))
+        bad = set_coherence(
+            item="Damp Rock",
+            moves=("hydropump", "hurricane", "roost", "uturn"),
+            spread=spread,
+        )
+        good = set_coherence(
+            item="Damp Rock",
+            moves=("raindance", "hurricane", "roost", "uturn"),
+            spread=spread,
+        )
+        self.assertLess(bad, 0.1)
+        self.assertGreater(good, 0.9)
+
     def test_team_export_separates_sets(self):
         mon = PokemonMeta(
             name="Examplemon",
