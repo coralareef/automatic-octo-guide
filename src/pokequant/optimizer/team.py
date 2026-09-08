@@ -36,6 +36,10 @@ def _diversity(team: tuple[str, ...], records: dict[str, PokemonMeta]) -> float:
     )
 
 
+def roster_swap_distance(a: tuple[str, ...], b: tuple[str, ...]) -> int:
+    return max(len(a), len(b)) - len(set(a) & set(b))
+
+
 def score_team(
     team: tuple[str, ...],
     records: dict[str, PokemonMeta],
@@ -110,3 +114,75 @@ def beam_search(
         key=lambda c: c.score,
         reverse=True,
     )
+
+
+def single_swap_mutations(
+    incumbent: tuple[str, ...],
+    records: dict[str, PokemonMeta],
+    ranked: list[RankedPokemon],
+    *,
+    pool_size: int = 50,
+    per_slot: int = 2,
+    threat_top_n: int = 30,
+) -> list[TeamCandidate]:
+    """Score the best one-Pokémon replacements for every incumbent slot."""
+    if not incumbent or per_slot <= 0:
+        return []
+    rank_scores = {row.name: row.score for row in ranked}
+    pool = [row.name for row in ranked[:pool_size] if row.name in records]
+    incumbent_set = set(incumbent)
+    selected: dict[frozenset[str], TeamCandidate] = {}
+
+    for slot in range(len(incumbent)):
+        slot_rows: list[TeamCandidate] = []
+        for replacement in pool:
+            if replacement in incumbent_set:
+                continue
+            members = list(incumbent)
+            members[slot] = replacement
+            if len(set(members)) != len(members):
+                continue
+            candidate = score_team(
+                tuple(members),
+                records,
+                rank_scores,
+                threat_top_n=threat_top_n,
+            )
+            slot_rows.append(candidate)
+        slot_rows.sort(key=lambda row: row.score, reverse=True)
+        for row in slot_rows[:per_slot]:
+            selected[frozenset(row.members)] = row
+
+    return sorted(selected.values(), key=lambda row: row.score, reverse=True)
+
+
+def select_diverse_candidates(
+    candidates: list[TeamCandidate],
+    *,
+    limit: int = 8,
+    min_swaps: int = 2,
+) -> list[TeamCandidate]:
+    """Greedily retain strong teams while avoiding a frontier of near-clones."""
+    if limit <= 0 or not candidates:
+        return []
+    ordered = sorted(candidates, key=lambda row: row.score, reverse=True)
+    selected = [ordered[0]]
+    remaining = ordered[1:]
+    threshold = max(min_swaps, 0)
+
+    while remaining and len(selected) < limit:
+        eligible = [
+            row
+            for row in remaining
+            if min(roster_swap_distance(row.members, kept.members) for kept in selected)
+            >= threshold
+        ]
+        if not eligible and threshold > 0:
+            threshold -= 1
+            continue
+        if not eligible:
+            eligible = remaining
+        chosen = eligible[0]
+        selected.append(chosen)
+        remaining.remove(chosen)
+    return selected
