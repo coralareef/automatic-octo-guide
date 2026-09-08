@@ -42,6 +42,17 @@ _KNOWN_STATUS_MOVES = _CHOICE_BAD_MOVES | {
     "haze",
     "leechseed",
     "partingshot",
+    "reflect",
+    "lightscreen",
+    "auroraveil",
+    "raindance",
+    "sunnyday",
+    "sandstorm",
+    "snowscape",
+    "electricterrain",
+    "grassyterrain",
+    "mistyterrain",
+    "psychicterrain",
     "sleeptalk",
     "taunt",
     "thunderwave",
@@ -49,6 +60,20 @@ _KNOWN_STATUS_MOVES = _CHOICE_BAD_MOVES | {
     "trick",
     "switcheroo",
     "willowisp",
+}
+
+_ITEM_ROLE_REQUIREMENTS: dict[str, set[str]] = {
+    "lightclay": {"reflect", "lightscreen", "auroraveil"},
+    "damprock": {"raindance"},
+    "heatrock": {"sunnyday"},
+    "smoothrock": {"sandstorm"},
+    "icyrock": {"snowscape", "hail"},
+    "terrainextender": {
+        "electricterrain",
+        "grassyterrain",
+        "mistyterrain",
+        "psychicterrain",
+    },
 }
 
 
@@ -134,8 +159,8 @@ def set_coherence(
 
     These rules do not claim to model battle value. They prevent independent
     Smogon marginals from promoting combinations such as Choice Scarf + Nasty
-    Plot + Recover or Assault Vest + status moves. Simulation remains the final
-    arbiter among coherent legal proposals.
+    Plot + Recover, Assault Vest + status moves, or Light Clay without screens.
+    Simulation remains the final arbiter among coherent legal proposals.
     """
     item_id = _id(item)
     move_ids = {_id(move) for move in moves}
@@ -145,6 +170,10 @@ def set_coherence(
         score *= 0.03
     if item_id == "assaultvest" and move_ids & _KNOWN_STATUS_MOVES:
         score *= 0.01
+
+    required_moves = _ITEM_ROLE_REQUIREMENTS.get(item_id)
+    if required_moves is not None and not (move_ids & required_moves):
+        score *= 0.02
 
     # Body Press is Defense-scaled. Iron Defense is usually selected to enable
     # Body Press; mixing Iron Defense into a conventional Attack set is a common
@@ -199,8 +228,8 @@ def _feature_log_score(value: float, mapping: dict[str, float]) -> float:
 def _move_sets(
     mon: PokemonMeta,
     *,
-    pool_size: int = 7,
-    keep: int = 12,
+    pool_size: int = 9,
+    keep: int = 20,
 ) -> list[tuple[tuple[str, ...], float]]:
     top_moves = _top(mon.moves, pool_size)
     if not top_moves:
@@ -224,12 +253,12 @@ def _move_sets(
 def generate_set_candidates(
     mon: PokemonMeta,
     *,
-    top_items: int = 4,
+    top_items: int = 6,
     top_abilities: int = 2,
-    top_teras: int = 4,
-    top_spreads: int = 4,
-    move_pool: int = 7,
-    move_sets: int = 12,
+    top_teras: int = 5,
+    top_spreads: int = 8,
+    move_pool: int = 9,
+    move_sets: int = 20,
     limit: int = 64,
 ) -> list[SetCandidate]:
     items = _top(mon.items, top_items) or [(None, 1.0)]
