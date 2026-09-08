@@ -6,7 +6,10 @@ on:
     paths:
       - ".github/workflows/refinement-tournament.yml"
       - "src/pokequant/optimizer/**"
+      - "src/pokequant/analysis/historical.py"
       - "src/pokequant/analysis/population.py"
+      - "src/pokequant/ingest.py"
+      - "src/pokequant/storage.py"
       - "src/pokequant/sets.py"
       - "src/pokequant/evaluation.py"
       - "src/pokequant/proposals.py"
@@ -30,11 +33,15 @@ jobs:
       - name: Run two-stage species tournament
         run: |
           python - <<'PY'
+          from pathlib import Path
+
+          from pokequant.analysis.historical import weighted_meta_records
           from pokequant.analysis.meta import parse_chaos, rank_pokemon
           from pokequant.analysis.population import generate_opponent_population
           from pokequant.clients.smogon import get_chaos
           from pokequant.config import MetaTarget
           from pokequant.evaluation import evaluate_candidate_batched
+          from pokequant.ingest import ingest_meta_history
           from pokequant.optimizer.team import (
               beam_search,
               roster_swap_distance,
@@ -44,9 +51,73 @@ jobs:
           from pokequant.proposals import build_legal_opponent_proposals
           from pokequant.sets import generate_team_set_candidates
           from pokequant.simulator import simulate_heuristic_batch, validate_team
+          from pokequant.storage import connect, corpus_stats
 
           target = MetaTarget(month="2026-08", format="gen9ou", rating=1825)
-          records = parse_chaos(get_chaos(target))
+
+          # Species selection, teammate synergy, historical threat coverage and
+          # opponent-population probabilities come from multi-month battle-derived
+          # Smogon/Showdown chaos statistics, not a single current snapshot.
+          history_db = Path("/tmp/pokequant-history.db")
+          ingest_result = ingest_meta_history(
+              history_db,
+              start="2023-01",
+              end="2026-08",
+              format="gen9ou",
+              rating=1825,
+          )
+          assert ingest_result["stored"] >= 24, (
+              "insufficient historical Showdown evidence: " + str(ingest_result)
+          )
+          conn = connect(history_db)
+          try:
+              history_stats = corpus_stats(conn)
+              historical_records = weighted_meta_records(
+                  conn,
+                  format="gen9ou",
+                  rating=1825,
+                  reference_month="2026-08",
+                  half_life_months=3.0,
+                  min_snapshots=2,
+              )
+              months = conn.execute(
+                  """
+                  SELECT MIN(month) AS first_month, MAX(month) AS last_month,
+                         COUNT(*) AS snapshots
+                  FROM meta_snapshots
+                  WHERE format=? AND rating=? AND month<=?
+                  """,
+                  ("gen9ou", 1825, "2026-08"),
+              ).fetchone()
+          finally:
+              conn.close()
+
+          # Exact sets must reflect the current legal metagame. Current 1825 chaos
+          # remains battle-derived evidence; it is used only for exact set proposal
+          # construction and as a legality-era filter.
+          current_records = parse_chaos(get_chaos(target))
+          records = {
+              name: record
+              for name, record in historical_records.items()
+              if name in current_records
+          }
+          assert len(records) >= 40, "historical/current intersection is too small"
+          print("HISTORICAL_EVIDENCE", {
+              "source": "Smogon chaos statistics derived from Pokemon Showdown battles",
+              "format": "gen9ou",
+              "rating": 1825,
+              "requested_range": ("2023-01", "2026-08"),
+              "stored": ingest_result["stored"],
+              "missing": ingest_result["missing"],
+              "failed": ingest_result["failed"],
+              "first_month": months["first_month"],
+              "last_month": months["last_month"],
+              "snapshots": months["snapshots"],
+              "pokemon_rows": history_stats["pokemon_rows"],
+              "half_life_months": 3.0,
+              "eligible_current_species": len(records),
+          })
+
           ranked = rank_pokemon(records)
           beam = beam_search(
               records,
@@ -90,7 +161,7 @@ jobs:
               attempts = 0
               for variant in generate_team_set_candidates(
                   team.members,
-                  records,
+                  current_records,
                   per_species=12,
                   beam_width=160,
                   limit=80,
@@ -135,7 +206,7 @@ jobs:
           )
           opponents6, stats6 = build_legal_opponent_proposals(
               archetypes6,
-              records,
+              current_records,
               validator=validate_team,
               format="gen9ou",
               variants_per_archetype=1,
@@ -200,7 +271,7 @@ jobs:
           )
           opponents8, stats8 = build_legal_opponent_proposals(
               archetypes8,
-              records,
+              current_records,
               validator=validate_team,
               format="gen9ou",
               variants_per_archetype=1,
