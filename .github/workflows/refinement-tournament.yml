@@ -1,0 +1,262 @@
+name: Refinement tournament
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/refinement-tournament.yml"
+      - "src/pokequant/optimizer/**"
+      - "src/pokequant/analysis/population.py"
+      - "src/pokequant/sets.py"
+      - "src/pokequant/evaluation.py"
+      - "src/pokequant/proposals.py"
+      - "src/pokequant/simulator.py"
+      - "sim/**"
+
+jobs:
+  tournament:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: python -m pip install -e .
+      - run: npm install --no-audit --no-fund
+      - name: Run two-stage species tournament
+        run: |
+          python - <<'PY'
+          from pokequant.analysis.meta import parse_chaos, rank_pokemon
+          from pokequant.analysis.population import generate_opponent_population
+          from pokequant.clients.smogon import get_chaos
+          from pokequant.config import MetaTarget
+          from pokequant.evaluation import evaluate_candidate
+          from pokequant.optimizer.team import (
+              beam_search,
+              roster_swap_distance,
+              select_diverse_candidates,
+              single_swap_mutations,
+          )
+          from pokequant.proposals import build_legal_opponent_proposals
+          from pokequant.sets import generate_team_set_candidates
+          from pokequant.simulator import simulate_heuristic, validate_team
+
+          target = MetaTarget(month="2026-08", format="gen9ou", rating=1825)
+          records = parse_chaos(get_chaos(target))
+          ranked = rank_pokemon(records)
+          beam = beam_search(
+              records,
+              ranked,
+              pool_size=55,
+              beam_width=750,
+              team_size=6,
+              threat_top_n=35,
+          )
+          assert beam, "optimizer returned no teams"
+          incumbent = beam[0]
+          mutations = single_swap_mutations(
+              incumbent.members,
+              records,
+              ranked,
+              pool_size=55,
+              per_slot=1,
+              threat_top_n=35,
+          )
+          diverse = select_diverse_candidates(beam, limit=5, min_swaps=2)
+
+          candidate_rows = []
+          seen = set()
+          for source, rows in (
+              ("incumbent", [incumbent]),
+              ("mutation", mutations[:4]),
+              ("diverse", diverse[1:]),
+          ):
+              for row in rows:
+                  key = frozenset(row.members)
+                  if key in seen:
+                      continue
+                  seen.add(key)
+                  candidate_rows.append((source, row))
+                  if len(candidate_rows) >= 8:
+                      break
+              if len(candidate_rows) >= 8:
+                  break
+
+          def first_legal_exact(team):
+              attempts = 0
+              for variant in generate_team_set_candidates(
+                  team.members,
+                  records,
+                  per_species=10,
+                  beam_width=128,
+                  limit=64,
+              ):
+                  attempts += 1
+                  if min(piece.coherence_score for piece in variant.sets) < 0.20:
+                      continue
+                  checked = validate_team(variant.export(), format="gen9ou")
+                  if checked.valid:
+                      return checked.export, variant, attempts
+              return None, None, attempts
+
+          exact = []
+          for source, row in candidate_rows:
+              export, variant, attempts = first_legal_exact(row)
+              if export is None:
+                  print("CANDIDATE_REJECTED", source, row.members, "attempts", attempts)
+                  continue
+              exact.append((source, row, export, variant))
+
+          print("INCUMBENT", incumbent.members, "score", round(incumbent.score, 4))
+          print("STATIC_FRONTIER", [
+              {
+                  "source": source,
+                  "members": row.members,
+                  "score": round(row.score, 4),
+                  "swaps_from_incumbent": roster_swap_distance(incumbent.members, row.members),
+              }
+              for source, row, _, _ in exact
+          ])
+          assert len(exact) >= 4, "not enough legal candidates"
+
+          archetypes6 = generate_opponent_population(
+              records,
+              pool_size=55,
+              beam_width=900,
+              team_size=6,
+              top=6,
+              candidate_multiplier=12,
+              min_prototype_swaps=2,
+              diversity_strength=1.6,
+          )
+          opponents6, stats6 = build_legal_opponent_proposals(
+              archetypes6,
+              records,
+              validator=validate_team,
+              format="gen9ou",
+              variants_per_archetype=1,
+              per_species=8,
+              beam_width=96,
+              proposal_limit=32,
+              coherence_floor=0.20,
+          )
+          print("STAGE1_OPPONENT_STATS", stats6)
+          print("STAGE1_ARCHETYPES", [
+              {"members": row.members, "weight": round(row.proposal_probability, 4)}
+              for row in archetypes6
+          ])
+          assert len(opponents6) >= 5
+
+          stage1 = []
+          for source, row, export, variant in exact:
+              result = evaluate_candidate(
+                  export,
+                  opponents6,
+                  simulator=simulate_heuristic,
+                  format="gen9ou",
+                  seeds_per_opponent=1,
+                  base_seed=2026090801,
+                  max_turns=500,
+                  risk_lambda=0.20,
+                  cvar_alpha=0.20,
+                  strict_protocol=True,
+              )
+              stage1.append((result.objective, result.expected_win, source, row, export, variant, result))
+              print("STAGE1_RESULT", {
+                  "source": source,
+                  "members": row.members,
+                  "pre_score": round(row.score, 4),
+                  "expected_win": round(result.expected_win, 4),
+                  "objective": round(result.objective, 4),
+                  "risk": round(result.risk, 4),
+                  "ci": (round(result.ci_low, 4), round(result.ci_high, 4)),
+                  "protocol_errors": result.protocol_errors,
+              })
+          stage1.sort(key=lambda row: (row[0], row[1]), reverse=True)
+          finalists = stage1[:2]
+          print("STAGE1_RANKING", [
+              {
+                  "rank": idx + 1,
+                  "members": row[3].members,
+                  "objective": round(row[0], 4),
+                  "expected_win": round(row[1], 4),
+              }
+              for idx, row in enumerate(stage1)
+          ])
+
+          archetypes8 = generate_opponent_population(
+              records,
+              pool_size=60,
+              beam_width=1200,
+              team_size=6,
+              top=8,
+              candidate_multiplier=14,
+              min_prototype_swaps=2,
+              diversity_strength=1.8,
+          )
+          opponents8, stats8 = build_legal_opponent_proposals(
+              archetypes8,
+              records,
+              validator=validate_team,
+              format="gen9ou",
+              variants_per_archetype=1,
+              per_species=8,
+              beam_width=96,
+              proposal_limit=40,
+              coherence_floor=0.20,
+          )
+          print("STAGE2_OPPONENT_STATS", stats8)
+          print("STAGE2_ARCHETYPES", [
+              {"members": row.members, "weight": round(row.proposal_probability, 4)}
+              for row in archetypes8
+          ])
+          assert len(opponents8) >= 6
+
+          stage2 = []
+          for _, _, source, row, export, variant, _ in finalists:
+              result = evaluate_candidate(
+                  export,
+                  opponents8,
+                  simulator=simulate_heuristic,
+                  format="gen9ou",
+                  seeds_per_opponent=2,
+                  base_seed=2026090802,
+                  max_turns=500,
+                  risk_lambda=0.20,
+                  cvar_alpha=0.20,
+                  strict_protocol=True,
+              )
+              stage2.append((result.objective, result.expected_win, source, row, export, variant, result))
+              print("STAGE2_RESULT", {
+                  "source": source,
+                  "members": row.members,
+                  "expected_win": round(result.expected_win, 4),
+                  "objective": round(result.objective, 4),
+                  "risk": round(result.risk, 4),
+                  "downside_cvar": round(result.downside_cvar, 4),
+                  "matchup_std": round(result.matchup_std, 4),
+                  "ci": (round(result.ci_low, 4), round(result.ci_high, 4)),
+                  "matchups": [
+                      (m.opponent, round(m.weight, 4), round(m.win_rate, 4))
+                      for m in result.matchups
+                  ],
+              })
+          stage2.sort(key=lambda row: (row[0], row[1]), reverse=True)
+          winner = stage2[0]
+          print("REFINEMENT_WINNER", {
+              "source": winner[2],
+              "members": winner[3].members,
+              "pre_score": round(winner[3].score, 4),
+              "expected_win": round(winner[1], 4),
+              "objective": round(winner[0], 4),
+              "risk": round(winner[6].risk, 4),
+          })
+          print("REFINEMENT_WINNER_EXACT_START")
+          print(winner[4])
+          print("REFINEMENT_WINNER_EXACT_END")
+          assert winner[6].protocol_errors == 0
+          PY
