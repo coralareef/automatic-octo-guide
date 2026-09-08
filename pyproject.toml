@@ -12,6 +12,12 @@ license = {text = "MIT"}
 authors = [{name = "coralareef"}]
 dependencies = []
 
+[project.optional-dependencies]
+dashboard = [
+    "streamlit==1.63.0",
+    "pandas>=2.2",
+]
+
 [project.scripts]
 pokequant = "pokequant.cli:main"
 
