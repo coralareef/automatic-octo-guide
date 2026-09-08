@@ -146,8 +146,9 @@ def set_coherence(
     if item_id == "assaultvest" and move_ids & _KNOWN_STATUS_MOVES:
         score *= 0.01
 
-    # Body Press is Defense-scaled. Iron Defense + Body Press with an offensive
-    # max-Attack spread is a classic artifact of independent marginal mixing.
+    # Body Press is Defense-scaled. Iron Defense is usually selected to enable
+    # Body Press; mixing Iron Defense into a conventional Attack set is a common
+    # artifact of independent marginals rather than a coherent role.
     hp, atk, defense, spa, spd, spe = spread.evs
     del hp, spa, spd, spe
     if "bodypress" in move_ids:
@@ -160,6 +161,12 @@ def set_coherence(
             score *= 1.20
         elif atk > defense:
             score *= 0.20
+    if "irondefense" in move_ids and "bodypress" not in move_ids:
+        score *= 0.18
+    # Close Combat drops both defenses, directly working against an Iron Defense
+    # win condition. Legal marginal mixing can otherwise rank this surprisingly high.
+    if {"irondefense", "closecombat"}.issubset(move_ids):
+        score *= 0.20
 
     return max(0.0, min(score, 1.25))
 
