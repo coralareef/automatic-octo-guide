@@ -72,6 +72,66 @@ def _components(
     return usage, association
 
 
+def team_swap_distance(a: tuple[str, ...], b: tuple[str, ...]) -> int:
+    """Number of roster slots that would need replacing to turn one team into another."""
+    return max(len(a), len(b)) - len(set(a) & set(b))
+
+
+def _select_diverse_prototypes(
+    teams: list[tuple[str, ...]],
+    probabilities: list[float],
+    *,
+    top: int,
+    min_swaps: int,
+    diversity_strength: float,
+) -> list[int]:
+    if not teams or top <= 0:
+        return []
+    selected = [0]
+    remaining = set(range(1, len(teams)))
+    while remaining and len(selected) < top:
+        distances = {
+            idx: min(team_swap_distance(teams[idx], teams[j]) for j in selected)
+            for idx in remaining
+        }
+        threshold = max(min_swaps, 0)
+        eligible = [idx for idx in remaining if distances[idx] >= threshold]
+        while not eligible and threshold > 0:
+            threshold -= 1
+            eligible = [idx for idx in remaining if distances[idx] >= threshold]
+        if not eligible:
+            eligible = list(remaining)
+
+        def merit(idx: int) -> float:
+            distance_fraction = distances[idx] / max(len(teams[idx]), 1)
+            return _safe_log(probabilities[idx]) + max(diversity_strength, 0.0) * distance_fraction
+
+        chosen = max(eligible, key=merit)
+        selected.append(chosen)
+        remaining.remove(chosen)
+    return selected
+
+
+def _cluster_probability_mass(
+    teams: list[tuple[str, ...]],
+    probabilities: list[float],
+    prototypes: list[int],
+) -> dict[int, float]:
+    masses = {idx: 0.0 for idx in prototypes}
+    for team_idx, team in enumerate(teams):
+        # Nearest roster prototype wins; ties go to the more probable prototype.
+        chosen = min(
+            prototypes,
+            key=lambda idx: (
+                team_swap_distance(team, teams[idx]),
+                -probabilities[idx],
+                idx,
+            ),
+        )
+        masses[chosen] += probabilities[team_idx]
+    return masses
+
+
 def generate_opponent_population(
     records: dict[str, PokemonMeta],
     *,
@@ -83,13 +143,17 @@ def generate_opponent_population(
     association_weight: float = 0.28,
     association_floor: float = 0.02,
     temperature: float = 0.18,
+    candidate_multiplier: int = 10,
+    min_prototype_swaps: int = 2,
+    diversity_strength: float = 1.25,
 ) -> list[OpponentArchetype]:
-    """Create coherent high-probability opponent proposals from Smogon chaos.
+    """Create coherent, diverse opponent proposals from Smogon chaos.
 
-    This is a proposal distribution for simulation coverage, not a claim that
-    Smogon teammate marginals uniquely identify the true joint distribution.
-    We blend current usage with normalized pairwise teammate association, keep a
-    wide beam, then softmax the retained archetypes into reproducible weights.
+    A broad high-probability beam is generated first. Instead of returning the
+    top-N near-duplicates, we select diverse roster prototypes and assign the
+    probability mass of every retained team to its nearest prototype. This keeps
+    the proposal distribution concentrated on current usage/teammate evidence
+    while preventing one common core from consuming the entire simulation suite.
     """
     if team_size <= 0 or top <= 0:
         return []
@@ -132,21 +196,46 @@ def generate_opponent_population(
         if not beam:
             return []
 
-    finalists = beam[: max(top, 1)]
+    candidate_count = min(
+        len(beam),
+        max(top, top * max(candidate_multiplier, 1)),
+    )
+    finalists = beam[:candidate_count]
     scored = [score_cache[team] for team in finalists]
     max_score = max(score for score, _, _ in scored)
     temp = max(temperature, 1e-6)
-    weights = [math.exp((score - max_score) / temp) for score, _, _ in scored]
-    total_weight = sum(weights) or 1.0
+    raw_weights = [math.exp((score - max_score) / temp) for score, _, _ in scored]
+    total_weight = sum(raw_weights) or 1.0
+    probabilities = [weight / total_weight for weight in raw_weights]
+
+    prototype_indices = _select_diverse_prototypes(
+        finalists,
+        probabilities,
+        top=min(top, len(finalists)),
+        min_swaps=min_prototype_swaps,
+        diversity_strength=diversity_strength,
+    )
+    cluster_mass = _cluster_probability_mass(finalists, probabilities, prototype_indices)
 
     rows = [
         OpponentArchetype(
-            members=team,
+            members=finalists[idx],
             score=scored[idx][0],
-            proposal_probability=weights[idx] / total_weight,
+            proposal_probability=cluster_mass[idx],
             usage_component=scored[idx][1],
             association_component=scored[idx][2],
         )
-        for idx, team in enumerate(finalists)
+        for idx in prototype_indices
     ]
-    return rows
+    rows.sort(key=lambda row: row.proposal_probability, reverse=True)
+    total = sum(row.proposal_probability for row in rows) or 1.0
+    return [
+        OpponentArchetype(
+            members=row.members,
+            score=row.score,
+            proposal_probability=row.proposal_probability / total,
+            usage_component=row.usage_component,
+            association_component=row.association_component,
+        )
+        for row in rows
+    ]
