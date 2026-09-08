@@ -75,6 +75,21 @@ class SetCandidateTests(unittest.TestCase):
             set_coherence(item="Leftovers", moves=moves, spread=offensive),
         )
 
+    def test_iron_defense_without_body_press_is_penalized(self):
+        offensive = Spread("Jolly", (0, 252, 0, 0, 4, 252))
+        incoherent = set_coherence(
+            item="Leftovers",
+            moves=("irondefense", "closecombat", "crunch", "heavyslam"),
+            spread=offensive,
+        )
+        coherent = set_coherence(
+            item="Leftovers",
+            moves=("bodypress", "irondefense", "crunch", "substitute"),
+            spread=Spread("Impish", (252, 0, 252, 0, 4, 0)),
+        )
+        self.assertLess(incoherent, 0.1)
+        self.assertGreater(coherent, 0.9)
+
     def test_assault_vest_status_move_is_penalized(self):
         spread = Spread("Timid", (0, 0, 0, 252, 4, 252))
         bad = set_coherence(
